@@ -1,0 +1,19 @@
+{
+  "code": 0,
+  "ret": 0,
+  "msg": "success",
+  "data": {
+    "account_id": 100000001,
+    "nickname": "Master",
+    "level": 60,
+    "exp": 99999,
+    "gold": 999999,
+    "diamond": 999999,
+    "avatar_id": 1,
+    "head_pic": "",
+    "gender": 1,
+    "rank_score": 2500,
+    "character_id": 101,
+    "unlocked_characters": [101, 102]
+  }
+}
