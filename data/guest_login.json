@@ -1,0 +1,11 @@
+{
+  "open_id": "GUEST_100000001",
+  "access_token": "GUEST_TOKEN_1785865047",
+  "refresh_token": "GUEST_TOKEN_1785865047",
+  "expiry_time": 1817401047,
+  "platform": 4,
+  "uid": "100000001",
+  "ret": 0,
+  "code": 0,
+  "msg": "success"
+}
