@@ -81,47 +81,78 @@ def handle_client(client_socket, addr):
             if not raw_data:
                 break
             
-            # Agar client binary ya raw packet bhej raha hai jo HTTP nahi hai
             req_str = raw_data.decode('utf-8', errors='ignore')
-            print(f"[TCP REQ] From {addr} -> {req_str[:120]}")
+            first_line = req_str.splitlines()[0] if req_str.splitlines() else "GET /"
+            print(f"[REQ] From {addr} -> {first_line}")
 
             player = get_player()
             base_url = "https://sigma-private-server.onrender.com/"
-            
-            # Full structured success payload for Lobby & Authentication bypass
-            response_payload = {
-                "code": 0,
-                "ret": 0,
-                "status": "ok",
-                "msg": "success",
-                "server_online": True,
-                "is_server_open": True,
-                "is_firewall_open": True,
-                "has_role": True,
-                "is_created": True,
-                "need_role": False,
-                "server_url": base_url,
-                "cdn_url": base_url,
-                "gate_ip": base_url,
-                "data": {
-                    "account_id": player["account_id"],
-                    "open_id": player["open_id"],
-                    "nickname": player["nickname"],
-                    "level": player["level"],
-                    "gold": player["gold"],
-                    "diamond": player["diamond"],
-                    "has_role": True,
-                    "is_created": True,
-                    "in_lobby": True,
-                    "server_time": int(time.time()),
-                    "unlocked_characters": [101, 102, 103, 104, 105],
-                    "unlocked_weapons": [201, 202, 203, 204]
-                },
-                "config": {
-                    "remote_version": "1.0.1",
-                    "is_review_server": False
+            req_lower = req_str.lower()
+
+            # 1. Configuration & Version Handshake (Stops initial loading freeze)
+            if any(k in req_lower for k in ["config", "version", "check", "init"]):
+                response_payload = {
+                    "code": 0, "ret": 0, "msg": "success",
+                    "is_server_open": True, "is_firewall_open": True,
+                    "remote_version": "1.0.1", "remote_option_version": "1.0.1",
+                    "server_url": base_url, "cdn_url": base_url, "backup_cdn_url": base_url,
+                    "is_review_server": False, "force_to_restart_app": False,
+                    "country_code": "IN", "client_ip": addr[0]
                 }
-            }
+
+            # 2. Login & Authentication Check
+            elif any(k in req_lower for k in ["login", "guest", "auth", "oauth"]):
+                response_payload = {
+                    "code": 0, "ret": 0, "msg": "success",
+                    "open_id": player["open_id"],
+                    "access_token": "TOKEN_MASTER_BYPASS_100",
+                    "refresh_token": "REFRESH_MASTER_BYPASS_100",
+                    "uid": str(player["account_id"]),
+                    "has_role": True, "is_created": True
+                }
+
+            # 3. Profile, Role & Lobby Sync (Stops 100% loading loop)
+            elif any(k in req_lower for k in ["role", "profile", "user", "lobby", "major", "nickname", "create"]):
+                response_payload = {
+                    "code": 0, "ret": 0, "msg": "success",
+                    "has_role": True, "is_created": True, "need_role": False,
+                    "data": {
+                        "account_id": player["account_id"],
+                        "open_id": player["open_id"],
+                        "nickname": player["nickname"],
+                        "level": player["level"],
+                        "exp": 99999,
+                        "gold": player["gold"],
+                        "diamond": player["diamond"],
+                        "avatar_id": 1, "gender": 1, "character_id": 101,
+                        "has_role": True, "is_created": True, "in_lobby": True,
+                        "server_time": int(time.time()),
+                        "unlocked_characters": [101, 102, 103, 104, 105],
+                        "unlocked_weapons": [201, 202, 203, 204]
+                    }
+                }
+
+            # 4. Asset File / Resource Check
+            elif any(k in req_lower for k in ["fileinfo", "res", "manifest", "bundle"]):
+                response_payload = {
+                    "code": 0, "ret": 0, "msg": "success",
+                    "files": [], "total_size": 0, "version": "1.0.1"
+                }
+
+            # 5. Default Fallback for any other game request
+            else:
+                response_payload = {
+                    "code": 0, "ret": 0, "msg": "success",
+                    "status": "ok",
+                    "server_url": base_url,
+                    "cdn_url": base_url,
+                    "data": {
+                        "account_id": player["account_id"],
+                        "nickname": player["nickname"],
+                        "gold": player["gold"],
+                        "diamond": player["diamond"]
+                    }
+                }
 
             packet = create_http_json_response(response_payload)
             client_socket.sendall(packet)
