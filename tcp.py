@@ -81,12 +81,14 @@ def handle_client(client_socket, addr):
             if not raw_data:
                 break
             
+            # Agar client binary ya raw packet bhej raha hai jo HTTP nahi hai
             req_str = raw_data.decode('utf-8', errors='ignore')
-            print(f"[PACKET RECEIVED] from {addr}: {req_str[:100]}...")
+            print(f"[TCP REQ] From {addr} -> {req_str[:120]}")
 
             player = get_player()
             base_url = "https://sigma-private-server.onrender.com/"
             
+            # Full structured success payload for Lobby & Authentication bypass
             response_payload = {
                 "code": 0,
                 "ret": 0,
@@ -132,7 +134,6 @@ def handle_client(client_socket, addr):
         except:
             pass
 
-# Function name match kar diya gaya hai taaki server.py error na de
 def start_tcp_server(host='0.0.0.0', port=8080):
     init_database()
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
