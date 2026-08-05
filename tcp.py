@@ -96,9 +96,9 @@ def handle_client(client_socket, addr):
             
             req_str = raw_data.decode('utf-8', errors='ignore')
             first_line = req_str.splitlines()[0] if req_str.splitlines() else "GET /"
-            print(f"[REQ] From {addr} -> {first_line}")
+            print(f"[TCP REQ] From {addr} -> {first_line}")
 
-            # Agar client ne request mein koi nickname bheja hai toh use extract karke database mein save karein
+            # Capture nickname if sent by client during registration/login
             if "nickname" in req_str.lower() or "name" in req_str.lower():
                 try:
                     if "{" in req_str:
@@ -114,29 +114,23 @@ def handle_client(client_socket, addr):
             base_url = "https://sigma-private-server.onrender.com/"
             req_lower = req_str.lower()
 
-            # 1. Configuration & Version Handshake
+            # Dynamic routing responses for game loading bypass
             if any(k in req_lower for k in ["config", "version", "check", "init"]):
                 response_payload = {
                     "code": 0, "ret": 0, "msg": "success",
                     "is_server_open": True, "is_firewall_open": True,
                     "remote_version": "1.0.1", "remote_option_version": "1.0.1",
-                    "server_url": base_url, "cdn_url": base_url, "backup_cdn_url": base_url,
-                    "is_review_server": False, "force_to_restart_app": False,
-                    "country_code": "IN", "client_ip": addr[0]
+                    "server_url": base_url, "cdn_url": base_url,
+                    "is_review_server": False, "force_to_restart_app": False
                 }
-
-            # 2. Login & Authentication Check
             elif any(k in req_lower for k in ["login", "guest", "auth", "oauth"]):
                 response_payload = {
                     "code": 0, "ret": 0, "msg": "success",
                     "open_id": player["open_id"],
                     "access_token": "TOKEN_MASTER_BYPASS_100",
-                    "refresh_token": "REFRESH_MASTER_BYPASS_100",
                     "uid": str(player["account_id"]),
                     "has_role": True, "is_created": True
                 }
-
-            # 3. Profile, Role & Nickname Creation Sync (Fixes 'Server will be ready soon')
             elif any(k in req_lower for k in ["role", "profile", "user", "lobby", "major", "nickname", "create"]):
                 response_payload = {
                     "code": 0, "ret": 0, "msg": "success",
@@ -157,15 +151,6 @@ def handle_client(client_socket, addr):
                         "unlocked_weapons": [201, 202, 203, 204]
                     }
                 }
-
-            # 4. Asset File / Resource Check
-            elif any(k in req_lower for k in ["fileinfo", "res", "manifest", "bundle"]):
-                response_payload = {
-                    "code": 0, "ret": 0, "msg": "success",
-                    "files": [], "total_size": 0, "version": "1.0.1"
-                }
-
-            # 5. Default Fallback
             else:
                 response_payload = {
                     "code": 0, "ret": 0, "msg": "success",
