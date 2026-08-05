@@ -3,8 +3,13 @@ import threading
 import json
 import time
 import sqlite3
+import datetime
 
 DB_FILE = 'accounts.db'
+
+def log_message(tag, message):
+    current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print(f"[{current_time}] [{tag}] {message}")
 
 def init_database():
     try:
@@ -28,9 +33,9 @@ def init_database():
             ''', ("GUEST_100000001", "Master", 60, 999999, 999999))
             conn.commit()
         conn.close()
-        print("[DB] Initialized successfully.")
+        log_message("DB", "Database initialized successfully.")
     except Exception as e:
-        print(f"[DB ERROR] {e}")
+        log_message("DB ERROR", str(e))
 
 def get_player():
     try:
@@ -68,9 +73,9 @@ def update_player_nickname(new_nickname):
         cursor.execute("UPDATE players SET nickname = ? WHERE open_id = ?", (new_nickname, "GUEST_100000001"))
         conn.commit()
         conn.close()
-        print(f"[DB] Nickname updated to: {new_nickname}")
+        log_message("DB UPDATE", f"Nickname successfully updated to: {new_nickname}")
     except Exception as e:
-        print(f"[DB UPDATE ERROR] {e}")
+        log_message("DB ERROR", str(e))
 
 def create_http_json_response(data_dict):
     body = json.dumps(data_dict)
@@ -87,8 +92,9 @@ def create_http_json_response(data_dict):
     return response.encode('utf-8')
 
 def handle_client(client_socket, addr):
+    log_message("TCP CONNECT", f"Connection established from {addr[0]}:{addr[1]}")
     try:
-        client_socket.settimeout(10.0)
+        client_socket.settimeout(15.0)
         while True:
             raw_data = client_socket.recv(8192)
             if not raw_data:
@@ -96,103 +102,85 @@ def handle_client(client_socket, addr):
             
             req_str = raw_data.decode('utf-8', errors='ignore')
             first_line = req_str.splitlines()[0] if req_str.splitlines() else "GET /"
-            print(f"[REQ] From {addr} -> {first_line}")
-
-            # Agar client ne request mein koi nickname bheja hai toh use extract karke database mein save karein
+            
+            # Print complete request log for debugging
+            log_message("TCP REQ", f"From {addr[0]} -> {first_line}")
+            
+            # Capture nickname if sent in body
             if "nickname" in req_str.lower() or "name" in req_str.lower():
                 try:
-                    if "{" in req_str:
-                        body_json = json.loads(req_str.split("\r\n\r\n")[1])
-                        if "nickname" in body_json:
-                            update_player_nickname(body_json["nickname"])
-                        elif "name" in body_json:
-                            update_player_nickname(body_json["name"])
-                except:
-                    pass
+                    if "\r\n\r\n" in req_str:
+                        body_part = req_str.split("\r\n\r\n")[1]
+                        if "{" in body_part:
+                            body_json = json.loads(body_part)
+                            if "nickname" in body_json:
+                                update_player_nickname(body_json["nickname"])
+                            elif "name" in body_json:
+                                update_player_nickname(body_json["name"])
+                except Exception as ex:
+                    log_message("PARSE ERROR", str(ex))
 
             player = get_player()
             base_url = "https://sigma-private-server.onrender.com/"
-            req_lower = req_str.lower()
 
-            # 1. Configuration & Version Handshake
-            if any(k in req_lower for k in ["config", "version", "check", "init"]):
-                response_payload = {
-                    "code": 0, "ret": 0, "msg": "success",
-                    "is_server_open": True, "is_firewall_open": True,
-                    "remote_version": "1.0.1", "remote_option_version": "1.0.1",
-                    "server_url": base_url, "cdn_url": base_url, "backup_cdn_url": base_url,
-                    "is_review_server": False, "force_to_restart_app": False,
-                    "country_code": "IN", "client_ip": addr[0]
-                }
-
-            # 2. Login & Authentication Check
-            elif any(k in req_lower for k in ["login", "guest", "auth", "oauth"]):
-                response_payload = {
-                    "code": 0, "ret": 0, "msg": "success",
-                    "open_id": player["open_id"],
-                    "access_token": "TOKEN_MASTER_BYPASS_100",
-                    "refresh_token": "REFRESH_MASTER_BYPASS_100",
+            # Response Payload
+            response_payload = {
+                "code": 0,
+                "ret": 0,
+                "status": 0,
+                "msg": "success",
+                "message": "success",
+                "is_server_open": True,
+                "is_firewall_open": True,
+                "has_role": True,
+                "is_created": True,
+                "need_role": False,
+                "token": "MASTER_TOKEN_BYPASS_100",
+                "access_token": "MASTER_TOKEN_BYPASS_100",
+                "refresh_token": "MASTER_REFRESH_BYPASS_100",
+                "uid": str(player["account_id"]),
+                "open_id": player["open_id"],
+                "server_url": base_url,
+                "cdn_url": base_url,
+                "gate_ip": base_url,
+                "data": {
+                    "account_id": player["account_id"],
                     "uid": str(player["account_id"]),
-                    "has_role": True, "is_created": True
+                    "open_id": player["open_id"],
+                    "nickname": player["nickname"],
+                    "level": player["level"],
+                    "exp": 99999,
+                    "gold": player["gold"],
+                    "diamond": player["diamond"],
+                    "avatar_id": 1,
+                    "gender": 1,
+                    "character_id": 101,
+                    "has_role": True,
+                    "is_created": True,
+                    "in_lobby": True,
+                    "server_time": int(time.time()),
+                    "unlocked_characters": [101, 102, 103, 104, 105],
+                    "unlocked_weapons": [201, 202, 203, 204]
+                },
+                "config": {
+                    "remote_version": "1.0.1",
+                    "remote_option_version": "1.0.1",
+                    "is_review_server": False
                 }
-
-            # 3. Profile, Role & Nickname Creation Sync (Fixes 'Server will be ready soon')
-            elif any(k in req_lower for k in ["role", "profile", "user", "lobby", "major", "nickname", "create"]):
-                response_payload = {
-                    "code": 0, "ret": 0, "msg": "success",
-                    "status": "ok",
-                    "has_role": True, "is_created": True, "need_role": False,
-                    "data": {
-                        "account_id": player["account_id"],
-                        "open_id": player["open_id"],
-                        "nickname": player["nickname"],
-                        "level": player["level"],
-                        "exp": 99999,
-                        "gold": player["gold"],
-                        "diamond": player["diamond"],
-                        "avatar_id": 1, "gender": 1, "character_id": 101,
-                        "has_role": True, "is_created": True, "in_lobby": True,
-                        "server_time": int(time.time()),
-                        "unlocked_characters": [101, 102, 103, 104, 105],
-                        "unlocked_weapons": [201, 202, 203, 204]
-                    }
-                }
-
-            # 4. Asset File / Resource Check
-            elif any(k in req_lower for k in ["fileinfo", "res", "manifest", "bundle"]):
-                response_payload = {
-                    "code": 0, "ret": 0, "msg": "success",
-                    "files": [], "total_size": 0, "version": "1.0.1"
-                }
-
-            # 5. Default Fallback
-            else:
-                response_payload = {
-                    "code": 0, "ret": 0, "msg": "success",
-                    "status": "ok",
-                    "server_url": base_url,
-                    "cdn_url": base_url,
-                    "data": {
-                        "account_id": player["account_id"],
-                        "nickname": player["nickname"],
-                        "gold": player["gold"],
-                        "diamond": player["diamond"],
-                        "has_role": True,
-                        "is_created": True,
-                        "in_lobby": True
-                    }
-                }
+            }
 
             packet = create_http_json_response(response_payload)
             client_socket.sendall(packet)
+            log_message("TCP RES", f"Sent success response to {addr[0]}")
 
     except Exception as e:
-        print(f"[SOCKET ERROR] {e}")
+        log_message("SOCKET ERROR", f"With {addr[0]} -> {str(e)}")
     finally:
         try:
             client_socket.close()
         except:
             pass
+        log_message("TCP DISCONNECT", f"Connection closed for {addr[0]}")
 
 def start_tcp_server(host='0.0.0.0', port=8080):
     init_database()
@@ -200,7 +188,7 @@ def start_tcp_server(host='0.0.0.0', port=8080):
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server.bind((host, port))
     server.listen(100)
-    print(f"[TCP SERVER] Running on port {port}")
+    log_message("TCP SERVER", f"Server successfully started and listening on port {port}")
 
     while True:
         try:
@@ -209,7 +197,7 @@ def start_tcp_server(host='0.0.0.0', port=8080):
             thread.daemon = True
             thread.start()
         except Exception as e:
-            print(f"[ACCEPT ERROR] {e}")
+            log_message("ACCEPT ERROR", str(e))
 
 if __name__ == '__main__':
     start_tcp_server()
