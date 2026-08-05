@@ -87,7 +87,6 @@ def handle_client(client_socket, addr):
             player = get_player()
             base_url = "https://sigma-private-server.onrender.com/"
             
-            # Universal Success JSON for all game endpoints
             response_payload = {
                 "code": 0,
                 "ret": 0,
@@ -133,13 +132,14 @@ def handle_client(client_socket, addr):
         except:
             pass
 
-def start_server(host='0.0.0.0', port=8080):
+# Function name match kar diya gaya hai taaki server.py error na de
+def start_tcp_server(host='0.0.0.0', port=8080):
     init_database()
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server.bind((host, port))
     server.listen(100)
-    print(f"[HYBRID SERVER] Running on port {port}")
+    print(f"[TCP SERVER] Running on port {port}")
 
     while True:
         try:
@@ -151,4 +151,4 @@ def start_server(host='0.0.0.0', port=8080):
             print(f"[ACCEPT ERROR] {e}")
 
 if __name__ == '__main__':
-    start_server()
+    start_tcp_server()
