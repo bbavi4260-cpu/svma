@@ -59,6 +59,19 @@ def get_player():
         "diamond": 999999
     }
 
+def update_player_nickname(new_nickname):
+    if not new_nickname or len(new_nickname.strip()) == 0:
+        return
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
+        cursor.execute("UPDATE players SET nickname = ? WHERE open_id = ?", (new_nickname, "GUEST_100000001"))
+        conn.commit()
+        conn.close()
+        print(f"[DB] Nickname updated to: {new_nickname}")
+    except Exception as e:
+        print(f"[DB UPDATE ERROR] {e}")
+
 def create_http_json_response(data_dict):
     body = json.dumps(data_dict)
     response = (
@@ -85,11 +98,23 @@ def handle_client(client_socket, addr):
             first_line = req_str.splitlines()[0] if req_str.splitlines() else "GET /"
             print(f"[REQ] From {addr} -> {first_line}")
 
+            # Agar client ne request mein koi nickname bheja hai toh use extract karke database mein save karein
+            if "nickname" in req_str.lower() or "name" in req_str.lower():
+                try:
+                    if "{" in req_str:
+                        body_json = json.loads(req_str.split("\r\n\r\n")[1])
+                        if "nickname" in body_json:
+                            update_player_nickname(body_json["nickname"])
+                        elif "name" in body_json:
+                            update_player_nickname(body_json["name"])
+                except:
+                    pass
+
             player = get_player()
             base_url = "https://sigma-private-server.onrender.com/"
             req_lower = req_str.lower()
 
-            # 1. Configuration & Version Handshake (Stops initial loading freeze)
+            # 1. Configuration & Version Handshake
             if any(k in req_lower for k in ["config", "version", "check", "init"]):
                 response_payload = {
                     "code": 0, "ret": 0, "msg": "success",
@@ -111,10 +136,11 @@ def handle_client(client_socket, addr):
                     "has_role": True, "is_created": True
                 }
 
-            # 3. Profile, Role & Lobby Sync (Stops 100% loading loop)
+            # 3. Profile, Role & Nickname Creation Sync (Fixes 'Server will be ready soon')
             elif any(k in req_lower for k in ["role", "profile", "user", "lobby", "major", "nickname", "create"]):
                 response_payload = {
                     "code": 0, "ret": 0, "msg": "success",
+                    "status": "ok",
                     "has_role": True, "is_created": True, "need_role": False,
                     "data": {
                         "account_id": player["account_id"],
@@ -139,7 +165,7 @@ def handle_client(client_socket, addr):
                     "files": [], "total_size": 0, "version": "1.0.1"
                 }
 
-            # 5. Default Fallback for any other game request
+            # 5. Default Fallback
             else:
                 response_payload = {
                     "code": 0, "ret": 0, "msg": "success",
@@ -150,7 +176,10 @@ def handle_client(client_socket, addr):
                         "account_id": player["account_id"],
                         "nickname": player["nickname"],
                         "gold": player["gold"],
-                        "diamond": player["diamond"]
+                        "diamond": player["diamond"],
+                        "has_role": True,
+                        "is_created": True,
+                        "in_lobby": True
                     }
                 }
 
