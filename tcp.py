@@ -41,62 +41,11 @@ def handle_client(client_socket, addr):
             first_line = req_str.splitlines()[0] if req_str else ""
             print(f"[TCP REQ LINE]: {first_line}")
 
-            # Note: Update this URL to your deployed domain after uploading to Render/VPS
-            base_url = "http://0.0.0.0/"
+            # ⚠️ DHYAN DEIN: Yahan apna exact Render URL daalein (ending with /)
+            base_url = "https://sigma-private-server.onrender.com/"
 
-            # 1. Player Info & Lobby Init Sync
-            if "player" in req_str or "profile" in req_str or "user" in req_str:
-                print("[SERVER MATCH] Handling Player Profile & Lobby Init")
-                player_payload = {
-                    "code": 0,
-                    "ret": 0,
-                    "msg": "success",
-                    "data": {
-                        "account_id": 100000001,
-                        "nickname": "Master",
-                        "level": 60,
-                        "exp": 99999,
-                        "gold": 999999,
-                        "diamond": 999999,
-                        "avatar_id": 1,
-                        "gender": 1,
-                        "character_id": 101,
-                        "unlocked_characters": [101, 102]
-                    }
-                }
-                client_socket.sendall(build_http_response(player_payload))
-
-            # 2. Guest OAuth & Register/Login Request
-            elif "guest" in req_str or "oauth" in req_str or "login" in req_str:
-                print("[SERVER MATCH] Handling Guest OAuth / Login Request")
-                guest_payload = {
-                    "open_id": "100000001",
-                    "access_token": "GUEST_TOKEN_1785865047",
-                    "refresh_token": "GUEST_TOKEN_1785865047",
-                    "expiry_time": 1817401047,
-                    "platform": 4,
-                    "uid": "100000001",
-                    "ret": 0,
-                    "code": 0,
-                    "msg": "success"
-                }
-                client_socket.sendall(build_http_response(guest_payload))
-
-            # 3. Asset File Info Request (/fileinfo)
-            elif "fileinfo" in req_str or "android/1.0.1" in req_str:
-                print("[SERVER MATCH] Handling Asset FileInfo Check")
-                fileinfo_payload = {
-                    "code": 0,
-                    "ret": 0,
-                    "msg": "success",
-                    "files": [],
-                    "total_size": 0,
-                    "version": "1.0.1"
-                }
-                client_socket.sendall(build_http_response(fileinfo_payload))
-
-            # 4. Main Config Payload (/ver.php / config)
-            else:
+            # 1. Main Config Response ("This server will be ready soon" is waja se aata hai agar flags false hon)
+            if "ver" in req_str or "config" in req_str or "client" in req_str:
                 print("[SERVER MATCH] Handling Main Server Config")
                 sigma_payload = {
                     "code": 0,
@@ -123,7 +72,7 @@ def handle_client(client_socket, addr):
                     "force_to_restart_app": False,
                     "country_code": "IN",
                     "gdpr_version": 0,
-                    "client_ip": addr[0],
+                    "client_ip": addr[0] if addr else "127.0.0.1",
                     "maintenance_announcement": "",
                     "maintenance_region": "",
                     "need_check_ip_list": [],
@@ -149,6 +98,48 @@ def handle_client(client_socket, addr):
                 }
                 client_socket.sendall(build_http_response(sigma_payload))
 
+            # 2. Player Profile Sync (Tap To Begin Action)
+            elif "player" in req_str or "profile" in req_str or "user" in req_str or "major" in req_str:
+                print("[SERVER MATCH] Handling Player Profile & Lobby Entrance")
+                player_payload = {
+                    "code": 0,
+                    "ret": 0,
+                    "msg": "success",
+                    "data": {
+                        "account_id": 100000001,
+                        "nickname": "Master",
+                        "level": 60,
+                        "exp": 99999,
+                        "gold": 999999,
+                        "diamond": 999999,
+                        "avatar_id": 1,
+                        "gender": 1,
+                        "character_id": 101,
+                        "unlocked_characters": [101, 102]
+                    }
+                }
+                client_socket.sendall(build_http_response(player_payload))
+
+            # 3. Guest Login Route
+            elif "guest" in req_str or "oauth" in req_str or "login" in req_str:
+                print("[SERVER MATCH] Handling Guest OAuth / Login Request")
+                guest_payload = {
+                    "open_id": "100000001",
+                    "access_token": "GUEST_TOKEN_1785865047",
+                    "refresh_token": "GUEST_TOKEN_1785865047",
+                    "expiry_time": 1817401047,
+                    "platform": 4,
+                    "uid": "100000001",
+                    "ret": 0,
+                    "code": 0,
+                    "msg": "success"
+                }
+                client_socket.sendall(build_http_response(guest_payload))
+
+            # Default Catch-all response
+            else:
+                client_socket.sendall(build_http_response({"code": 0, "ret": 0, "is_server_open": True}))
+
     except Exception as e:
         print(f"[TCP ERROR]: {e}")
     finally:
@@ -167,4 +158,3 @@ def start_tcp_server(host='0.0.0.0', port=8080):
         thread = threading.Thread(target=handle_client, args=(client_socket, addr))
         thread.daemon = True
         thread.start()
-          
