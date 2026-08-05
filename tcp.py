@@ -1,27 +1,7 @@
 import socket
 import threading
 import json
-import sqlite3
 import time
-
-def init_accounts_db():
-    try:
-        conn = sqlite3.connect('accounts.db')
-        cursor = conn.cursor()
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS players (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                username TEXT UNIQUE NOT NULL,
-                level INTEGER DEFAULT 60,
-                diamonds INTEGER DEFAULT 999999,
-                gold INTEGER DEFAULT 999999
-            )
-        ''')
-        conn.commit()
-        conn.close()
-        print("[DATABASE] Accounts database initialized successfully.")
-    except Exception as e:
-        print(f"[DATABASE ERROR] {e}")
 
 def build_http_response(json_data):
     body = json.dumps(json_data)
@@ -37,28 +17,35 @@ def build_http_response(json_data):
     )
     return response.encode('utf-8')
 
-def build_binary_tcp_response(json_data):
+def build_protobuf_binary_response(json_data):
+    # Generates strict Protobuf framing header for Netty Socket Client
     json_bytes = json.dumps(json_data).encode('utf-8')
-    packet_len = len(json_bytes)
-    # Magic Header Frame (Length + Standard Response Marker)
-    header = bytearray([0x00, 0x00, (packet_len >> 8) & 0xFF, packet_len & 0xFF, 0x00, 0x00, 0x00, 0x00])
+    body_length = len(json_bytes)
+    
+    # Header: 2-byte Magic Tag (0x08, 0x00) + 2-byte Payload Length + Data
+    header = bytearray([
+        0x08, 0x00, 
+        (body_length >> 8) & 0xFF, 
+        body_length & 0xFF
+    ])
     return header + json_bytes
 
 def handle_client(client_socket, addr):
-    print(f"[TCP CLIENT CONNECTED] IP: {addr[0]}:{addr[1]}")
+    print(f"[TCP LOG] Connected from: {addr[0]}:{addr[1]}")
     try:
+        client_socket.settimeout(5.0)
         raw_data = client_socket.recv(8192)
         if not raw_data:
             return
 
         req_text = raw_data.decode('utf-8', errors='ignore')
-        first_line = req_text.splitlines()[0] if req_text else "RAW BINARY SOCKET PACKET"
-        print(f"[REQUEST] {first_line}")
+        first_line = req_text.splitlines()[0] if req_text else "BINARY PACKET"
+        print(f"[CLIENT REQ]: {first_line}")
 
         base_url = "https://svmx.onrender.com/"
 
-        # 1. Global Master Payload (Full Server Open + Lobby Bypass Data)
-        master_lobby_payload = {
+        # Master Response Data - Unlocks Server, Removes Maintenance, Grants Full Lobby Access
+        master_data = {
             "code": 0,
             "ret": 0,
             "msg": "success",
@@ -69,6 +56,13 @@ def handle_client(client_socket, addr):
             "maintenance": False,
             "has_role": True,
             "is_created": True,
+            "account_id": 100000001,
+            "open_id": "GUEST_100000001",
+            "nickname": "Master",
+            "level": 60,
+            "exp": 999999,
+            "gold": 999999,
+            "diamond": 999999,
             "data": {
                 "account_id": 100000001,
                 "open_id": "GUEST_100000001",
@@ -88,8 +82,8 @@ def handle_client(client_socket, addr):
             }
         }
 
-        # 2. Server Main Configuration Payload
-        config_payload = {
+        # Config Payload
+        config_data = {
             "code": 0,
             "ret": 0,
             "status": "ok",
@@ -140,70 +134,43 @@ def handle_client(client_socket, addr):
             "login_download_optionalpack": ""
         }
 
-        # 3. Guest Authorization Payload
-        guest_auth_payload = {
-            "open_id": "GUEST_100000001",
-            "access_token": "GUEST_TOKEN_SIGMA_ONLINE_8849301",
-            "refresh_token": "GUEST_TOKEN_SIGMA_ONLINE_8849301",
-            "expiry_time": 1817401047,
-            "platform": 4,
-            "uid": "100000001",
-            "ret": 0,
-            "code": 0,
-            "msg": "success",
-            "has_role": True,
-            "is_created": True,
-            "status": "ok"
-        }
-
-        req_lower = req_text.lower()
-
-        # HTTP REST Standard Requests
+        # Handle HTTP standard calls
         if req_text.startswith("GET") or req_text.startswith("POST") or req_text.startswith("OPTIONS"):
+            req_lower = req_text.lower()
             if any(k in req_lower for k in ["config", "ver", "client"]):
-                print("[ROUTING] Main Config Match -> Sending Server Config")
-                client_socket.sendall(build_http_response(config_payload))
-            elif any(k in req_lower for k in ["guest", "oauth", "login"]):
-                print("[ROUTING] Guest Auth Match -> Authorizing Session")
-                client_socket.sendall(build_http_response(guest_auth_payload))
-            elif any(k in req_lower for k in ["role", "nickname", "create", "name", "player", "major", "lobby", "user"]):
-                print("[ROUTING] Lobby / Role Request -> Sending Master Lobby Payload")
-                client_socket.sendall(build_http_response(master_lobby_payload))
+                print("[RESPONSE] Config Sent")
+                client_socket.sendall(build_http_response(config_data))
             else:
-                print("[ROUTING] Universal Match -> Sending Universal Master Payload")
-                client_socket.sendall(build_http_response(master_lobby_payload))
+                print("[RESPONSE] Universal Master HTTP Sent")
+                client_socket.sendall(build_http_response(master_data))
         else:
-            # Direct Netty TCP Socket Binary Streams
-            print("[ROUTING] Netty Binary Stream Detected -> Sending Framing Binary Header + Payload")
-            client_socket.sendall(build_binary_tcp_response(master_lobby_payload))
+            # Handle Direct Binary Netty Stream
+            print("[RESPONSE] Binary Protobuf Frame Sent")
+            client_socket.sendall(build_protobuf_binary_response(master_data))
 
     except Exception as e:
-        print(f"[SOCKET ERROR] {e}")
+        print(f"[CLIENT HANDLER ERROR]: {e}")
     finally:
-        client_socket.close()
+        try:
+            client_socket.close()
+        except:
+            pass
 
 def start_tcp_server(host='0.0.0.0', port=8080):
-    init_accounts_db()
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    
-    try:
-        server.bind((host, port))
-        server.listen(50)
-        print(f"==================================================")
-        print(f"[SERVER STARTED] Full Big Master TCP/HTTP Listening on {host}:{port}")
-        print(f"==================================================")
-        
-        while True:
+    server.bind((host, port))
+    server.listen(50)
+    print(f"[MASTER SERVER] Running on {host}:{port}")
+
+    while True:
+        try:
             client_socket, addr = server.accept()
             client_thread = threading.Thread(target=handle_client, args=(client_socket, addr))
             client_thread.daemon = True
             client_thread.start()
-
-    except Exception as e:
-        print(f"[FATAL SERVER ERROR] {e}")
-    finally:
-        server.close()
+        except Exception as e:
+            print(f"[ACCEPT ERROR]: {e}")
 
 if __name__ == '__main__':
     start_tcp_server()
