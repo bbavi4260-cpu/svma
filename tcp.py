@@ -41,40 +41,19 @@ def handle_client(client_socket, addr):
             first_line = req_str.splitlines()[0] if req_str else ""
             print(f"[TCP REQ LINE]: {first_line}")
 
-            # ⚠️ Apna actual Render Live URL yahan dalein:
+            # ⚠️ APNA RENDER DOMAIN URL YAHAN DAALEIN (ending with /)
             base_url = "https://sigma-private-server.onrender.com/"
 
-            # 1. Name Creation / Check Name / Role Init (FIX FOR "PLEASE GO" BUTTON)
-            if any(k in req_str.lower() for k in ["role", "name", "create", "nickname", "character_create"]):
-                print("[SERVER MATCH] Handling Player Name Creation & Role Init")
-                role_create_payload = {
-                    "code": 0,
-                    "ret": 0,
-                    "msg": "success",
-                    "data": {
-                        "account_id": 100000001,
-                        "nickname": "Master",
-                        "level": 1,
-                        "exp": 0,
-                        "gold": 999999,
-                        "diamond": 999999,
-                        "avatar_id": 1,
-                        "gender": 1,
-                        "character_id": 101,
-                        "create_time": 1700000000
-                    }
-                }
-                client_socket.sendall(build_http_response(role_create_payload))
-
-            # 2. Player Profile Sync & Major Init (Lobby Entrance)
-            elif any(k in req_str.lower() for k in ["player", "profile", "user", "major", "lobby"]):
-                print("[SERVER MATCH] Handling Player Profile Sync")
+            # 1. Full Player & Lobby Direct Sync (Bypasses Endless Loading)
+            if any(k in req_str.lower() for k in ["player", "profile", "user", "major", "lobby", "role", "name", "create"]):
+                print("[SERVER MATCH] Bypass Name Creation -> Direct Lobby Sync")
                 player_payload = {
                     "code": 0,
                     "ret": 0,
                     "msg": "success",
                     "data": {
                         "account_id": 100000001,
+                        "open_id": "GUEST_100000001",
                         "nickname": "Master",
                         "level": 60,
                         "exp": 99999,
@@ -83,16 +62,18 @@ def handle_client(client_socket, addr):
                         "avatar_id": 1,
                         "gender": 1,
                         "character_id": 101,
+                        "has_role": True,
+                        "is_created": True,
                         "unlocked_characters": [101, 102]
                     }
                 }
                 client_socket.sendall(build_http_response(player_payload))
 
-            # 3. Guest OAuth & Register/Login Request
+            # 2. Guest OAuth Login (Direct Account Created Flag Enabled)
             elif any(k in req_str.lower() for k in ["guest", "oauth", "login"]):
-                print("[SERVER MATCH] Handling Guest OAuth / Login Request")
+                print("[SERVER MATCH] Handling Guest OAuth Response")
                 guest_payload = {
-                    "open_id": "100000001",
+                    "open_id": "GUEST_100000001",
                     "access_token": "GUEST_TOKEN_1785865047",
                     "refresh_token": "GUEST_TOKEN_1785865047",
                     "expiry_time": 1817401047,
@@ -100,12 +81,14 @@ def handle_client(client_socket, addr):
                     "uid": "100000001",
                     "ret": 0,
                     "code": 0,
-                    "msg": "success"
+                    "msg": "success",
+                    "has_role": True,
+                    "is_created": True
                 }
                 client_socket.sendall(build_http_response(guest_payload))
 
-            # 4. Asset File Info Request (/fileinfo)
-            elif any(k in req_str.lower() for k in ["fileinfo", "android"]):
+            # 3. Asset Check / Patch / FileInfo Request
+            elif any(k in req_str.lower() for k in ["fileinfo", "android", "version"]):
                 print("[SERVER MATCH] Handling Asset FileInfo Check")
                 fileinfo_payload = {
                     "code": 0,
@@ -117,9 +100,9 @@ def handle_client(client_socket, addr):
                 }
                 client_socket.sendall(build_http_response(fileinfo_payload))
 
-            # 5. Main Config Server Response
+            # 4. Main Server Config Payload
             else:
-                print("[SERVER MATCH] Handling Server Config / General Request")
+                print("[SERVER MATCH] Handling Server Main Config")
                 sigma_payload = {
                     "code": 0,
                     "ret": 0,
