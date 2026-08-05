@@ -1,52 +1,89 @@
-import socket
-import threading
-import sqlite3
+from http.server import HTTPServer, BaseHTTPRequestHandler
 import json
 
-def init_accounts_db():
-    conn = sqlite3.connect('accounts.db')
-    cursor = conn.cursor()
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS players (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT UNIQUE NOT NULL,
-            level INTEGER DEFAULT 60,
-            diamonds INTEGER DEFAULT 999999,
-            gold INTEGER DEFAULT 999999
-        )
-    ''')
-    conn.commit()
-    conn.close()
+class SigmaServerHandler(BaseHTTPRequestHandler):
+    def log_message(self, format, *args):
+        # Console me clear logs print honge
+        print(f"[HTTP] {self.address_string()} - {format % args}")
 
-def build_http_response(json_data):
-    body = json.dumps(json_data)
-    response = (
-        "HTTP/1.1 200 OK\r\n"
-        "Content-Type: application/json; charset=utf-8\r\n"
-        "Access-Control-Allow-Origin: *\r\n"
-        "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n"
-        "Access-Control-Allow-Headers: *\r\n"
-        "Connection: close\r\n"
-        f"Content-Length: {len(body.encode('utf-8'))}\r\n\r\n"
-        f"{body}"
-    )
-    return response.encode('utf-8')
+    def do_OPTIONS(self):
+        # CORS Headers cross-origin Requests ke liye
+        self.send_response(200)
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', '*')
+        self.end_headers()
 
-def handle_client(client_socket, addr):
-    print(f"[TCP] New Connection from: {addr}")
-    try:
-        raw_data = client_socket.recv(4096)
-        if raw_data:
-            req_str = raw_data.decode('utf-8', errors='ignore')
-            first_line = req_str.splitlines()[0] if req_str else ""
-            print(f"[TCP REQ LINE]: {first_line}")
+    def send_json_response(self, data):
+        body = json.dumps(data).encode('utf-8')
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/json; charset=utf-8')
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', '*')
+        self.send_header('Content-Length', str(len(body)))
+        self.send_header('Connection', 'close')
+        self.end_headers()
+        self.wfile.write(body)
 
-            # ⚠️ Apna actual Render domain URL yahan rakhein
-            base_url = "https://sigma-private-server.onrender.com/"
-            req_lower = req_str.lower()
+    def process_request(self):
+        path = self.path.lower()
+        print(f"[REQ PATH]: {path}")
 
-            # Main Config Response (Required for initial loading screen to reach Login Screen)
-            sigma_config = {
+        # ⚠️ Aapka exact Render URL (HTTPS ke sath)
+        base_url = "https://svmx.onrender.com/"
+
+        # Player Data - Directly unlocks Lobby & bypasses "Let's Go" Screen
+        lobby_data = {
+            "code": 0,
+            "ret": 0,
+            "msg": "success",
+            "has_role": True,
+            "is_created": True,
+            "data": {
+                "account_id": 100000001,
+                "open_id": "GUEST_100000001",
+                "nickname": "Master",
+                "level": 60,
+                "exp": 99999,
+                "gold": 999999,
+                "diamond": 999999,
+                "avatar_id": 1,
+                "gender": 1,
+                "character_id": 101,
+                "has_role": True,
+                "is_created": True,
+                "unlocked_characters": [101, 102]
+            }
+        }
+
+        # 1. Player Role Creation / Nickname / "Let's Go" Entry
+        if any(k in path for k in ["role", "nickname", "create", "name", "player", "major", "lobby"]):
+            print("[MATCH] Bypass Nickname & Enter Lobby")
+            self.send_json_response(lobby_data)
+
+        # 2. Guest Login Authorization
+        elif any(k in path for k in ["guest", "oauth", "login"]):
+            print("[MATCH] Authorized Guest Login")
+            guest_data = {
+                "open_id": "GUEST_100000001",
+                "access_token": "GUEST_TOKEN_1785865047",
+                "refresh_token": "GUEST_TOKEN_1785865047",
+                "expiry_time": 1817401047,
+                "platform": 4,
+                "uid": "100000001",
+                "ret": 0,
+                "code": 0,
+                "msg": "success",
+                "has_role": True,
+                "is_created": True
+            }
+            self.send_json_response(guest_data)
+
+        # 3. Server Config Check (Starting Loading Screen)
+        elif any(k in path for k in ["config", "ver", "client"]):
+            print("[MATCH] Main Config Response Sent")
+            config_data = {
                 "code": 0,
                 "ret": 0,
                 "is_server_open": True,
@@ -71,7 +108,7 @@ def handle_client(client_socket, addr):
                 "force_to_restart_app": False,
                 "country_code": "IN",
                 "gdpr_version": 0,
-                "client_ip": addr[0] if addr else "127.0.0.1",
+                "client_ip": self.client_address[0] if self.client_address else "127.0.0.1",
                 "maintenance_announcement": "",
                 "maintenance_region": "",
                 "need_check_ip_list": [],
@@ -95,94 +132,24 @@ def handle_client(client_socket, addr):
                 "sigma_backup_url": base_url,
                 "login_download_optionalpack": ""
             }
+            self.send_json_response(config_data)
 
-            # Lobby / Account Payload
-            lobby_sync_payload = {
-                "code": 0,
-                "ret": 0,
-                "msg": "success",
-                "has_role": True,
-                "is_created": True,
-                "data": {
-                    "account_id": 100000001,
-                    "open_id": "GUEST_100000001",
-                    "nickname": "Master",
-                    "level": 60,
-                    "exp": 99999,
-                    "gold": 999999,
-                    "diamond": 999999,
-                    "avatar_id": 1,
-                    "gender": 1,
-                    "character_id": 101,
-                    "has_role": True,
-                    "is_created": True,
-                    "unlocked_characters": [101, 102]
-                }
-            }
+        # 4. Fallback for any other request (Send Lobby Data directly)
+        else:
+            print("[MATCH] Fallback Catch-all -> Sending Lobby Sync")
+            self.send_json_response(lobby_data)
 
-            # ROUTING LOGIC
+    def do_GET(self):
+        self.process_request()
 
-            # 1. INITIAL CONFIG & VERSION CHECK (Fixes loading screen stuck)
-            if any(k in req_lower for k in ["config", "ver", "client", "check"]):
-                print("[SERVER MATCH] Handshaking Main Config")
-                client_socket.sendall(build_http_response(sigma_config))
-
-            # 2. GUEST & LOGIN REQUESTS
-            elif any(k in req_lower for k in ["guest", "oauth", "login"]):
-                print("[SERVER MATCH] Handling Guest Login")
-                guest_payload = {
-                    "open_id": "GUEST_100000001",
-                    "access_token": "GUEST_TOKEN_1785865047",
-                    "refresh_token": "GUEST_TOKEN_1785865047",
-                    "expiry_time": 1817401047,
-                    "platform": 4,
-                    "uid": "100000001",
-                    "ret": 0,
-                    "code": 0,
-                    "msg": "success",
-                    "has_role": True,
-                    "is_created": True
-                }
-                client_socket.sendall(build_http_response(guest_payload))
-
-            # 3. PLAYER PROFILE / ROLE / LOBBY SYNC
-            elif any(k in req_lower for k in ["role", "name", "create", "nickname", "player", "profile", "user", "major", "lobby"]):
-                print("[SERVER MATCH] Direct Player & Lobby Sync")
-                client_socket.sendall(build_http_response(lobby_sync_payload))
-
-            # 4. FILEINFO & ASSET CHECKS
-            elif any(k in req_lower for k in ["fileinfo", "android", "version"]):
-                print("[SERVER MATCH] Asset FileInfo Check")
-                fileinfo_payload = {
-                    "code": 0,
-                    "ret": 0,
-                    "msg": "success",
-                    "files": [],
-                    "total_size": 0,
-                    "version": "1.0.1"
-                }
-                client_socket.sendall(build_http_response(fileinfo_payload))
-
-            # DEFAULT FALLBACK (Always send Main Config if unknown route requested at start)
-            else:
-                print("[SERVER MATCH] Initial Startup Match -> Config Returned")
-                client_socket.sendall(build_http_response(sigma_config))
-
-    except Exception as e:
-        print(f"[TCP ERROR]: {e}")
-    finally:
-        client_socket.close()
+    def do_POST(self):
+        self.process_request()
 
 def start_tcp_server(host='0.0.0.0', port=8080):
-    init_accounts_db()
-    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    server.bind((host, port))
-    server.listen(10)
-    print(f"[TCP SERVER] Running on {host}:{port}")
+    server_address = (host, port)
+    httpd = HTTPServer(server_address, SigmaServerHandler)
+    print(f"[HTTP SERVER] Running on {host}:{port}")
+    httpd.serve_forever()
 
-    while True:
-        client_socket, addr = server.accept()
-        thread = threading.Thread(target=handle_client, args=(client_socket, addr))
-        thread.daemon = True
-        thread.start()
+if __name__ == '__main__':
+    start_tcp_server()
