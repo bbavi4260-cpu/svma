@@ -98,7 +98,7 @@ def handle_client(client_socket, addr):
             first_line = req_str.splitlines()[0] if req_str.splitlines() else "GET /"
             print(f"[TCP REQ] From {addr} -> {first_line}")
 
-            # Capture nickname if sent by client during registration/login
+            # Capture nickname if sent by client
             if "nickname" in req_str.lower() or "name" in req_str.lower():
                 try:
                     if "{" in req_str:
@@ -114,59 +114,51 @@ def handle_client(client_socket, addr):
             base_url = "https://sigma-private-server.onrender.com/"
             req_lower = req_str.lower()
 
-            # Dynamic routing responses for game loading bypass
-            if any(k in req_lower for k in ["config", "version", "check", "init"]):
-                response_payload = {
-                    "code": 0, "ret": 0, "msg": "success",
-                    "is_server_open": True, "is_firewall_open": True,
-                    "remote_version": "1.0.1", "remote_option_version": "1.0.1",
-                    "server_url": base_url, "cdn_url": base_url,
-                    "is_review_server": False, "force_to_restart_app": False
-                }
-            elif any(k in req_lower for k in ["login", "guest", "auth", "oauth"]):
-                response_payload = {
-                    "code": 0, "ret": 0, "msg": "success",
-                    "open_id": player["open_id"],
-                    "access_token": "TOKEN_MASTER_BYPASS_100",
+            # Comprehensive Dictionary Keys Payload to prevent ArgumentNullException
+            response_payload = {
+                "code": 0,
+                "ret": 0,
+                "status": 0,
+                "msg": "success",
+                "message": "success",
+                "is_server_open": True,
+                "is_firewall_open": True,
+                "has_role": True,
+                "is_created": True,
+                "need_role": False,
+                "token": "MASTER_TOKEN_BYPASS_100",
+                "access_token": "MASTER_TOKEN_BYPASS_100",
+                "refresh_token": "MASTER_REFRESH_BYPASS_100",
+                "uid": str(player["account_id"]),
+                "open_id": player["open_id"],
+                "server_url": base_url,
+                "cdn_url": base_url,
+                "gate_ip": base_url,
+                "data": {
+                    "account_id": player["account_id"],
                     "uid": str(player["account_id"]),
-                    "has_role": True, "is_created": True
+                    "open_id": player["open_id"],
+                    "nickname": player["nickname"],
+                    "level": player["level"],
+                    "exp": 99999,
+                    "gold": player["gold"],
+                    "diamond": player["diamond"],
+                    "avatar_id": 1,
+                    "gender": 1,
+                    "character_id": 101,
+                    "has_role": True,
+                    "is_created": True,
+                    "in_lobby": True,
+                    "server_time": int(time.time()),
+                    "unlocked_characters": [101, 102, 103, 104, 105],
+                    "unlocked_weapons": [201, 202, 203, 204]
+                },
+                "config": {
+                    "remote_version": "1.0.1",
+                    "remote_option_version": "1.0.1",
+                    "is_review_server": False
                 }
-            elif any(k in req_lower for k in ["role", "profile", "user", "lobby", "major", "nickname", "create"]):
-                response_payload = {
-                    "code": 0, "ret": 0, "msg": "success",
-                    "status": "ok",
-                    "has_role": True, "is_created": True, "need_role": False,
-                    "data": {
-                        "account_id": player["account_id"],
-                        "open_id": player["open_id"],
-                        "nickname": player["nickname"],
-                        "level": player["level"],
-                        "exp": 99999,
-                        "gold": player["gold"],
-                        "diamond": player["diamond"],
-                        "avatar_id": 1, "gender": 1, "character_id": 101,
-                        "has_role": True, "is_created": True, "in_lobby": True,
-                        "server_time": int(time.time()),
-                        "unlocked_characters": [101, 102, 103, 104, 105],
-                        "unlocked_weapons": [201, 202, 203, 204]
-                    }
-                }
-            else:
-                response_payload = {
-                    "code": 0, "ret": 0, "msg": "success",
-                    "status": "ok",
-                    "server_url": base_url,
-                    "cdn_url": base_url,
-                    "data": {
-                        "account_id": player["account_id"],
-                        "nickname": player["nickname"],
-                        "gold": player["gold"],
-                        "diamond": player["diamond"],
-                        "has_role": True,
-                        "is_created": True,
-                        "in_lobby": True
-                    }
-                }
+            }
 
             packet = create_http_json_response(response_payload)
             client_socket.sendall(packet)
