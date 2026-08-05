@@ -88,7 +88,7 @@ def create_http_json_response(data_dict):
 
 def handle_client(client_socket, addr):
     try:
-        client_socket.settimeout(10.0)
+        client_socket.settimeout(15.0)
         while True:
             raw_data = client_socket.recv(8192)
             if not raw_data:
@@ -98,15 +98,17 @@ def handle_client(client_socket, addr):
             first_line = req_str.splitlines()[0] if req_str.splitlines() else "GET /"
             print(f"[TCP REQ] From {addr} -> {first_line}")
 
-            # Capture nickname if sent by client
+            # Capture nickname if sent in body
             if "nickname" in req_str.lower() or "name" in req_str.lower():
                 try:
-                    if "{" in req_str:
-                        body_json = json.loads(req_str.split("\r\n\r\n")[1])
-                        if "nickname" in body_json:
-                            update_player_nickname(body_json["nickname"])
-                        elif "name" in body_json:
-                            update_player_nickname(body_json["name"])
+                    if "\r\n\r\n" in req_str:
+                        body_part = req_str.split("\r\n\r\n")[1]
+                        if "{" in body_part:
+                            body_json = json.loads(body_part)
+                            if "nickname" in body_json:
+                                update_player_nickname(body_json["nickname"])
+                            elif "name" in body_json:
+                                update_player_nickname(body_json["name"])
                 except:
                     pass
 
@@ -114,7 +116,7 @@ def handle_client(client_socket, addr):
             base_url = "https://sigma-private-server.onrender.com/"
             req_lower = req_str.lower()
 
-            # Comprehensive Dictionary Keys Payload to prevent ArgumentNullException
+            # Robust Response Payload containing all possible game fields to avoid null/parsing errors
             response_payload = {
                 "code": 0,
                 "ret": 0,
