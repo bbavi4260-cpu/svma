@@ -88,7 +88,7 @@ def create_http_json_response(data_dict):
 
 def handle_client(client_socket, addr):
     try:
-        client_socket.settimeout(15.0)
+        client_socket.settimeout(10.0)
         while True:
             raw_data = client_socket.recv(8192)
             if not raw_data:
@@ -96,19 +96,17 @@ def handle_client(client_socket, addr):
             
             req_str = raw_data.decode('utf-8', errors='ignore')
             first_line = req_str.splitlines()[0] if req_str.splitlines() else "GET /"
-            print(f"[TCP REQ] From {addr} -> {first_line}")
+            print(f"[REQ] From {addr} -> {first_line}")
 
-            # Capture nickname if sent in body
+            # Agar client ne request mein koi nickname bheja hai toh use extract karke database mein save karein
             if "nickname" in req_str.lower() or "name" in req_str.lower():
                 try:
-                    if "\r\n\r\n" in req_str:
-                        body_part = req_str.split("\r\n\r\n")[1]
-                        if "{" in body_part:
-                            body_json = json.loads(body_part)
-                            if "nickname" in body_json:
-                                update_player_nickname(body_json["nickname"])
-                            elif "name" in body_json:
-                                update_player_nickname(body_json["name"])
+                    if "{" in req_str:
+                        body_json = json.loads(req_str.split("\r\n\r\n")[1])
+                        if "nickname" in body_json:
+                            update_player_nickname(body_json["nickname"])
+                        elif "name" in body_json:
+                            update_player_nickname(body_json["name"])
                 except:
                     pass
 
@@ -116,51 +114,74 @@ def handle_client(client_socket, addr):
             base_url = "https://sigma-private-server.onrender.com/"
             req_lower = req_str.lower()
 
-            # Robust Response Payload containing all possible game fields to avoid null/parsing errors
-            response_payload = {
-                "code": 0,
-                "ret": 0,
-                "status": 0,
-                "msg": "success",
-                "message": "success",
-                "is_server_open": True,
-                "is_firewall_open": True,
-                "has_role": True,
-                "is_created": True,
-                "need_role": False,
-                "token": "MASTER_TOKEN_BYPASS_100",
-                "access_token": "MASTER_TOKEN_BYPASS_100",
-                "refresh_token": "MASTER_REFRESH_BYPASS_100",
-                "uid": str(player["account_id"]),
-                "open_id": player["open_id"],
-                "server_url": base_url,
-                "cdn_url": base_url,
-                "gate_ip": base_url,
-                "data": {
-                    "account_id": player["account_id"],
-                    "uid": str(player["account_id"]),
-                    "open_id": player["open_id"],
-                    "nickname": player["nickname"],
-                    "level": player["level"],
-                    "exp": 99999,
-                    "gold": player["gold"],
-                    "diamond": player["diamond"],
-                    "avatar_id": 1,
-                    "gender": 1,
-                    "character_id": 101,
-                    "has_role": True,
-                    "is_created": True,
-                    "in_lobby": True,
-                    "server_time": int(time.time()),
-                    "unlocked_characters": [101, 102, 103, 104, 105],
-                    "unlocked_weapons": [201, 202, 203, 204]
-                },
-                "config": {
-                    "remote_version": "1.0.1",
-                    "remote_option_version": "1.0.1",
-                    "is_review_server": False
+            # 1. Configuration & Version Handshake
+            if any(k in req_lower for k in ["config", "version", "check", "init"]):
+                response_payload = {
+                    "code": 0, "ret": 0, "msg": "success",
+                    "is_server_open": True, "is_firewall_open": True,
+                    "remote_version": "1.0.1", "remote_option_version": "1.0.1",
+                    "server_url": base_url, "cdn_url": base_url, "backup_cdn_url": base_url,
+                    "is_review_server": False, "force_to_restart_app": False,
+                    "country_code": "IN", "client_ip": addr[0]
                 }
-            }
+
+            # 2. Login & Authentication Check
+            elif any(k in req_lower for k in ["login", "guest", "auth", "oauth"]):
+                response_payload = {
+                    "code": 0, "ret": 0, "msg": "success",
+                    "open_id": player["open_id"],
+                    "access_token": "TOKEN_MASTER_BYPASS_100",
+                    "refresh_token": "REFRESH_MASTER_BYPASS_100",
+                    "uid": str(player["account_id"]),
+                    "has_role": True, "is_created": True
+                }
+
+            # 3. Profile, Role & Nickname Creation Sync (Fixes 'Server will be ready soon')
+            elif any(k in req_lower for k in ["role", "profile", "user", "lobby", "major", "nickname", "create"]):
+                response_payload = {
+                    "code": 0, "ret": 0, "msg": "success",
+                    "status": "ok",
+                    "has_role": True, "is_created": True, "need_role": False,
+                    "data": {
+                        "account_id": player["account_id"],
+                        "open_id": player["open_id"],
+                        "nickname": player["nickname"],
+                        "level": player["level"],
+                        "exp": 99999,
+                        "gold": player["gold"],
+                        "diamond": player["diamond"],
+                        "avatar_id": 1, "gender": 1, "character_id": 101,
+                        "has_role": True, "is_created": True, "in_lobby": True,
+                        "server_time": int(time.time()),
+                        "unlocked_characters": [101, 102, 103, 104, 105],
+                        "unlocked_weapons": [201, 202, 203, 204]
+                    }
+                }
+
+            # 4. Asset File / Resource Check
+            elif any(k in req_lower for k in ["fileinfo", "res", "manifest", "bundle"]):
+                response_payload = {
+                    "code": 0, "ret": 0, "msg": "success",
+                    "files": [], "total_size": 0, "version": "1.0.1"
+                }
+
+            # 5. Default Fallback
+            else:
+                response_payload = {
+                    "code": 0, "ret": 0, "msg": "success",
+                    "status": "ok",
+                    "server_url": base_url,
+                    "cdn_url": base_url,
+                    "data": {
+                        "account_id": player["account_id"],
+                        "nickname": player["nickname"],
+                        "gold": player["gold"],
+                        "diamond": player["diamond"],
+                        "has_role": True,
+                        "is_created": True,
+                        "in_lobby": True
+                    }
+                }
 
             packet = create_http_json_response(response_payload)
             client_socket.sendall(packet)
