@@ -7,9 +7,9 @@ import datetime
 
 DB_FILE = 'accounts.db'
 
-def log_message(tag, message):
+def log_msg(tag, msg):
     current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    print(f"[{current_time}] [{tag}] {message}")
+    print(f"[{current_time}] [{tag}] {msg}")
 
 def init_database():
     try:
@@ -33,9 +33,9 @@ def init_database():
             ''', ("GUEST_100000001", "Master", 60, 999999, 999999))
             conn.commit()
         conn.close()
-        log_message("DB", "Database initialized successfully.")
+        log_msg("DB", "Database initialized successfully.")
     except Exception as e:
-        log_message("DB ERROR", str(e))
+        log_msg("DB ERROR", str(e))
 
 def get_player():
     try:
@@ -73,9 +73,9 @@ def update_player_nickname(new_nickname):
         cursor.execute("UPDATE players SET nickname = ? WHERE open_id = ?", (new_nickname, "GUEST_100000001"))
         conn.commit()
         conn.close()
-        log_message("DB UPDATE", f"Nickname successfully updated to: {new_nickname}")
+        log_msg("DB UPDATE", f"Nickname updated to: {new_nickname}")
     except Exception as e:
-        log_message("DB ERROR", str(e))
+        log_msg("DB ERROR", str(e))
 
 def create_http_json_response(data_dict):
     body = json.dumps(data_dict)
@@ -92,7 +92,7 @@ def create_http_json_response(data_dict):
     return response.encode('utf-8')
 
 def handle_client(client_socket, addr):
-    log_message("TCP CONNECT", f"Connection established from {addr[0]}:{addr[1]}")
+    log_msg("TCP CONNECT", f"Incoming connection from {addr[0]}:{addr[1]}")
     try:
         client_socket.settimeout(15.0)
         while True:
@@ -102,11 +102,9 @@ def handle_client(client_socket, addr):
             
             req_str = raw_data.decode('utf-8', errors='ignore')
             first_line = req_str.splitlines()[0] if req_str.splitlines() else "GET /"
-            
-            # Print complete request log for debugging
-            log_message("TCP REQ", f"From {addr[0]} -> {first_line}")
-            
-            # Capture nickname if sent in body
+            log_msg("TCP REQ", f"From {addr[0]} -> {first_line}")
+
+            # Capture nickname if sent by client
             if "nickname" in req_str.lower() or "name" in req_str.lower():
                 try:
                     if "\r\n\r\n" in req_str:
@@ -118,69 +116,98 @@ def handle_client(client_socket, addr):
                             elif "name" in body_json:
                                 update_player_nickname(body_json["name"])
                 except Exception as ex:
-                    log_message("PARSE ERROR", str(ex))
+                    log_msg("PARSE ERROR", str(ex))
 
             player = get_player()
             base_url = "https://sigma-private-server.onrender.com/"
+            req_lower = req_str.lower()
 
-            # Response Payload
-            response_payload = {
-                "code": 0,
-                "ret": 0,
-                "status": 0,
-                "msg": "success",
-                "message": "success",
-                "is_server_open": True,
-                "is_firewall_open": True,
-                "has_role": True,
-                "is_created": True,
-                "need_role": False,
-                "token": "MASTER_TOKEN_BYPASS_100",
-                "access_token": "MASTER_TOKEN_BYPASS_100",
-                "refresh_token": "MASTER_REFRESH_BYPASS_100",
-                "uid": str(player["account_id"]),
-                "open_id": player["open_id"],
-                "server_url": base_url,
-                "cdn_url": base_url,
-                "gate_ip": base_url,
-                "data": {
-                    "account_id": player["account_id"],
-                    "uid": str(player["account_id"]),
-                    "open_id": player["open_id"],
-                    "nickname": player["nickname"],
-                    "level": player["level"],
-                    "exp": 99999,
-                    "gold": player["gold"],
-                    "diamond": player["diamond"],
-                    "avatar_id": 1,
-                    "gender": 1,
-                    "character_id": 101,
-                    "has_role": True,
-                    "is_created": True,
-                    "in_lobby": True,
-                    "server_time": int(time.time()),
-                    "unlocked_characters": [101, 102, 103, 104, 105],
-                    "unlocked_weapons": [201, 202, 203, 204]
-                },
-                "config": {
-                    "remote_version": "1.0.1",
-                    "remote_option_version": "1.0.1",
-                    "is_review_server": False
+            # 1. Configuration & Version Handshake
+            if any(k in req_lower for k in ["config", "version", "check", "init"]):
+                log_msg("ROUTE", "Handling Config/Version Request")
+                response_payload = {
+                    "code": 0, "ret": 0, "msg": "success",
+                    "is_server_open": True, "is_firewall_open": True,
+                    "remote_version": "1.0.1", "remote_option_version": "1.0.1",
+                    "server_url": base_url, "cdn_url": base_url, "backup_cdn_url": base_url,
+                    "is_review_server": False, "force_to_restart_app": False,
+                    "country_code": "IN", "client_ip": addr[0]
                 }
-            }
+
+            # 2. Login & Authentication Check
+            elif any(k in req_lower for k in ["login", "guest", "auth", "oauth"]):
+                log_msg("ROUTE", "Handling Login/Auth Request")
+                response_payload = {
+                    "code": 0, "ret": 0, "msg": "success",
+                    "open_id": player["open_id"],
+                    "access_token": "TOKEN_MASTER_BYPASS_100",
+                    "refresh_token": "REFRESH_MASTER_BYPASS_100",
+                    "uid": str(player["account_id"]),
+                    "has_role": True, "is_created": True
+                }
+
+            # 3. Profile, Role & Nickname Creation Sync
+            elif any(k in req_lower for k in ["role", "profile", "user", "lobby", "major", "nickname", "create"]):
+                log_msg("ROUTE", "Handling Role/Profile/Lobby Request")
+                response_payload = {
+                    "code": 0, "ret": 0, "msg": "success",
+                    "status": "ok",
+                    "has_role": True, "is_created": True, "need_role": False,
+                    "data": {
+                        "account_id": player["account_id"],
+                        "open_id": player["open_id"],
+                        "nickname": player["nickname"],
+                        "level": player["level"],
+                        "exp": 99999,
+                        "gold": player["gold"],
+                        "diamond": player["diamond"],
+                        "avatar_id": 1, "gender": 1, "character_id": 101,
+                        "has_role": True, "is_created": True, "in_lobby": True,
+                        "server_time": int(time.time()),
+                        "unlocked_characters": [101, 102, 103, 104, 105],
+                        "unlocked_weapons": [201, 202, 203, 204]
+                    }
+                }
+
+            # 4. Asset File / Resource Check
+            elif any(k in req_lower for k in ["fileinfo", "res", "manifest", "bundle"]):
+                log_msg("ROUTE", "Handling File/Manifest Request")
+                response_payload = {
+                    "code": 0, "ret": 0, "msg": "success",
+                    "files": [], "total_size": 0, "version": "1.0.1"
+                }
+
+            # 5. Default Fallback
+            else:
+                log_msg("ROUTE", "Handling General Fallback Request")
+                response_payload = {
+                    "code": 0, "ret": 0, "msg": "success",
+                    "status": "ok",
+                    "server_url": base_url,
+                    "cdn_url": base_url,
+                    "data": {
+                        "account_id": player["account_id"],
+                        "nickname": player["nickname"],
+                        "gold": player["gold"],
+                        "diamond": player["diamond"],
+                        "has_role": True,
+                        "is_created": True,
+                        "in_lobby": True
+                    }
+                }
 
             packet = create_http_json_response(response_payload)
             client_socket.sendall(packet)
-            log_message("TCP RES", f"Sent success response to {addr[0]}")
+            log_msg("TCP RES", f"Response successfully sent to {addr[0]}")
 
     except Exception as e:
-        log_message("SOCKET ERROR", f"With {addr[0]} -> {str(e)}")
+        log_msg("SOCKET ERROR", f"With {addr[0]} -> {str(e)}")
     finally:
         try:
             client_socket.close()
         except:
             pass
-        log_message("TCP DISCONNECT", f"Connection closed for {addr[0]}")
+        log_msg("TCP DISCONNECT", f"Connection closed for {addr[0]}")
 
 def start_tcp_server(host='0.0.0.0', port=8080):
     init_database()
@@ -188,7 +215,7 @@ def start_tcp_server(host='0.0.0.0', port=8080):
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server.bind((host, port))
     server.listen(100)
-    log_message("TCP SERVER", f"Server successfully started and listening on port {port}")
+    log_msg("TCP SERVER", f"Server started successfully and listening on port {port}")
 
     while True:
         try:
@@ -197,7 +224,7 @@ def start_tcp_server(host='0.0.0.0', port=8080):
             thread.daemon = True
             thread.start()
         except Exception as e:
-            log_message("ACCEPT ERROR", str(e))
+            log_msg("ACCEPT ERROR", str(e))
 
 if __name__ == '__main__':
     start_tcp_server()
