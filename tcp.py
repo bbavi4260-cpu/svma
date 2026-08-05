@@ -1,37 +1,32 @@
-from http.server import HTTPServer, BaseHTTPRequestHandler
+import socket
+import threading
 import json
 
-class SigmaServerHandler(BaseHTTPRequestHandler):
-    def log_message(self, format, *args):
-        print(f"[HTTP LOG] {self.address_string()} - {format % args}")
+def build_raw_http_response(body_bytes, content_type="application/json; charset=utf-8"):
+    headers = (
+        "HTTP/1.1 200 OK\r\n"
+        f"Content-Type: {content_type}\r\n"
+        "Access-Control-Allow-Origin: *\r\n"
+        "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n"
+        "Access-Control-Allow-Headers: *\r\n"
+        "Connection: close\r\n"
+        f"Content-Length: {len(body_bytes)}\r\n\r\n"
+    )
+    return headers.encode('utf-8') + body_bytes
 
-    def do_OPTIONS(self):
-        self.send_response(200)
-        self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', '*')
-        self.end_headers()
+def handle_client(client_socket, addr):
+    print(f"[TCP LOG] Connected: {addr}")
+    try:
+        raw_data = client_socket.recv(4096)
+        if not raw_data:
+            return
 
-    def send_json_response(self, data):
-        body = json.dumps(data).encode('utf-8')
-        self.send_response(200)
-        self.send_header('Content-Type', 'application/json; charset=utf-8')
-        self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', '*')
-        self.send_header('Content-Length', str(len(body)))
-        self.send_header('Connection', 'close')
-        self.end_headers()
-        self.wfile.write(body)
+        # Request parsing
+        req_text = raw_data.decode('utf-8', errors='ignore')
+        print(f"[REQ HEADER]: {req_text.splitlines()[0] if req_text else 'BINARY PACKET'}")
 
-    def process_request(self):
-        path = self.path.lower()
-        print(f"[REQ PATH]: {path}")
-
-        base_url = "https://svmx.onrender.com/"
-
-        # Fully Dynamic Ready Payload (Forces "Tap to Begin" to pass into Lobby)
-        server_ready_payload = {
+        # Universal 100% Ready JSON Data Payload
+        ready_payload = {
             "code": 0,
             "ret": 0,
             "msg": "success",
@@ -42,111 +37,54 @@ class SigmaServerHandler(BaseHTTPRequestHandler):
             "maintenance": False,
             "has_role": True,
             "is_created": True,
+            "open_id": "GUEST_100000001",
+            "nickname": "Master",
             "data": {
                 "account_id": 100000001,
                 "open_id": "GUEST_100000001",
                 "nickname": "Master",
                 "level": 60,
-                "exp": 99999,
                 "gold": 999999,
                 "diamond": 999999,
-                "avatar_id": 1,
-                "gender": 1,
-                "character_id": 101,
-                "has_role": True,
-                "is_created": True,
-                "unlocked_characters": [101, 102]
-            }
-        }
-
-        # Main Server Config Protocol Response
-        config_payload = {
-            "code": 0,
-            "ret": 0,
-            "status": "ok",
-            "is_server_open": True,
-            "is_firewall_open": True,
-            "need_track_hotupdate": False,
-            "min_hint_size": 0,
-            "billboard_cdn_url": "",
-            "billboard_msg": "",
-            "patchnote_url": "",
-            "web_url": "",
-            "billboard_bg_url": "",
-            "max_store": "",
-            "max_web": "",
-            "max_video": "",
-            "remote_version": "1.0.1",
-            "remote_option_version": "1.0.1",
-            "cdn_url": base_url,
-            "backup_cdn_url": base_url,
-            "server_url": base_url,
-            "is_review_server": False,
-            "appstore_url": "",
-            "force_to_restart_app": False,
-            "country_code": "IN",
-            "gdpr_version": 0,
-            "client_ip": self.client_address[0] if self.client_address else "127.0.0.1",
-            "maintenance_announcement": "",
-            "maintenance_region": "",
-            "need_check_ip_list": [],
-            "network_log_server": base_url,
-            "web_log_server": base_url,
-            "login_failed_count": 0,
-            "test_url": base_url,
-            "img_cdn_url": base_url,
-            "core_url": base_url,
-            "core_ip_list": [],
-            "is_update_btn_show": False,
-            "is_use_multi_download": False,
-            "use_login_optional_download": False,
-            "use_background_download": False,
-            "use_background_download_lobby": False,
-            "use_backgound_download_mem_thredshold": 0,
-            "sigma_login": True,
-            "sigma_switch": True,
-            "enable_clear_mem_when_autopause": False,
-            "space_required_in_GB": 0,
-            "sigma_backup_url": base_url,
-            "login_download_optionalpack": ""
-        }
-
-        # Routing Logic
-        if any(k in path for k in ["config", "ver", "client"]):
-            print("[MATCH] Config Check Response")
-            self.send_json_response(config_payload)
-        elif any(k in path for k in ["guest", "oauth", "login"]):
-            print("[MATCH] Guest Login Response")
-            guest_payload = {
-                "open_id": "GUEST_100000001",
-                "access_token": "GUEST_TOKEN_1785865047",
-                "refresh_token": "GUEST_TOKEN_1785865047",
-                "expiry_time": 1817401047,
-                "platform": 4,
-                "uid": "100000001",
-                "ret": 0,
-                "code": 0,
-                "msg": "success",
                 "has_role": True,
                 "is_created": True
             }
-            self.send_json_response(guest_payload)
+        }
+
+        json_bytes = json.dumps(ready_payload).encode('utf-8')
+
+        # Checks if request is standard HTTP or Raw TCP Binary
+        if req_text.startswith("GET") or req_text.startswith("POST") or req_text.startswith("OPTIONS"):
+            # Standard Web HTTP Handshake
+            response = build_raw_http_response(json_bytes)
+            client_socket.sendall(response)
+            print("[SERVER RESPONSE] HTTP OK Sent")
         else:
-            # Captures all Tap to Begin / Role / Server Check requests
-            print("[MATCH] Active Handshake -> Universal Ready Response Sent")
-            self.send_json_response(server_ready_payload)
+            # Game Raw TCP/Protobuf Socket Handshake
+            # Creates a binary magic header (Length + Ret Code 0 + Binary Payload)
+            packet_len = len(json_bytes)
+            binary_header = bytearray([0x00, 0x00, (packet_len >> 8) & 0xFF, packet_len & 0xFF, 0x00, 0x00, 0x00, 0x00])
+            binary_response = binary_header + json_bytes
+            client_socket.sendall(binary_response)
+            print("[SERVER RESPONSE] Raw TCP Binary Payload Sent")
 
-    def do_GET(self):
-        self.process_request()
+    except Exception as e:
+        print(f"[ERROR]: {e}")
+    finally:
+        client_socket.close()
 
-    def do_POST(self):
-        self.process_request()
+def start_server(host='0.0.0.0', port=8080):
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server.bind((host, port))
+    server.listen(15)
+    print(f"[TCP RAW/HTTP SERVER] Active on {host}:{port}")
 
-def start_tcp_server(host='0.0.0.0', port=8080):
-    server_address = (host, port)
-    httpd = HTTPServer(server_address, SigmaServerHandler)
-    print(f"[HTTP SERVER] Listening on {host}:{port}")
-    httpd.serve_forever()
+    while True:
+        client_socket, addr = server.accept()
+        t = threading.Thread(target=handle_client, args=(client_socket, addr))
+        t.daemon = True
+        t.start()
 
 if __name__ == '__main__':
-    start_tcp_server()
+    start_server()
