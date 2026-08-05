@@ -19,13 +19,12 @@ def init_accounts_db():
                 gold INTEGER DEFAULT 999999
             )
         ''')
-        # Insert default master profile if not exists
         cursor.execute("SELECT id FROM players WHERE username = ?", ("Master",))
         if not cursor.fetchone():
             cursor.execute('''
                 INSERT INTO players (username, level, diamonds, gold)
                 VALUES (?, ?, ?, ?)
-            ''', ("Master", 60, 999999, 999999))
+            ​''', ("Master", 60, 999999, 999999))
             conn.commit()
         conn.close()
         print("[DB] Accounts database initialized successfully.")
@@ -52,7 +51,6 @@ def get_player_data(username="Master"):
     except Exception as e:
         print(f"[DB FETCH ERROR] {e}")
     
-    # Fallback default
     return {
         "account_id": 100000001,
         "open_id": "GUEST_100000001",
@@ -127,12 +125,14 @@ def handle_client(client_socket, addr):
             }
             client_socket.sendall(build_http_response(guest_payload))
 
-        # 3. PLAYER PROFILE / ROLE / LOBBY SYNC
-        elif any(k in req_lower for k in ["role", "name", "create", "nickname", "player", "profile", "user", "major", "lobby"]):
-            print("[SERVER MATCH] Direct Player & Lobby Sync")
+        # 3. PLAYER PROFILE / ROLE / NICKNAME CREATION SYNC
+        elif any(k in req_lower for k in ["role", "name", "create", "nickname", "player", "profile", "user", "major", "lobby", "register"]):
+            print("[SERVER MATCH] Direct Player & Lobby Sync (Nickname Accepted)")
             lobby_sync_payload = {
                 "code": 0, "ret": 0, "msg": "success",
+                "status": "ok",
                 "has_role": True, "is_created": True,
+                "need_role": False,
                 "data": {
                     "account_id": player["account_id"],
                     "open_id": player["open_id"],
@@ -143,6 +143,7 @@ def handle_client(client_socket, addr):
                     "diamond": player["diamond"],
                     "avatar_id": 1, "gender": 1, "character_id": 101,
                     "has_role": True, "is_created": True,
+                    "in_lobby": True,
                     "unlocked_characters": [101, 102, 103, 104, 105]
                 }
             }
