@@ -5,6 +5,7 @@ import time
 import sqlite3
 import datetime
 import os
+from urllib.parse import parse_qs, urlparse
 
 DB_FILE = 'accounts.db'
 
@@ -12,7 +13,7 @@ def log_msg(tag, msg):
     current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     print(f"[{current_time}] [{tag}] {msg}")
 
-# --- DATABASE ENGINE ---
+# --- DATABASE ENGINE (TERMUX & RENDER SYNCED) ---
 def init_database():
     try:
         conn = sqlite3.connect(DB_FILE)
@@ -67,6 +68,21 @@ def get_player(open_id="100000001"):
         "diamond": 999999
     }
 
+def update_player_data(open_id, gold, diamond, level):
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
+        cursor.execute('''
+            UPDATE players SET gold = ?, diamond = ?, level = ? WHERE open_id = ?
+        ''', (gold, diamond, level, open_id))
+        conn.commit()
+        conn.close()
+        log_msg("TERMUX SYNC", f"Player {open_id} updated from Termux Bridge!")
+        return True
+    except Exception as e:
+        log_msg("TERMUX SYNC ERROR", str(e))
+        return False
+
 # --- HTTP RESPONSE BUILDER ---
 def create_http_response(data_dict, status_code=200):
     body = json.dumps(data_dict)
@@ -82,7 +98,7 @@ def create_http_response(data_dict, status_code=200):
     )
     return response.encode('utf-8')
 
-# --- HTTP ROUTE HANDLER ---
+# --- HTTP ROUTE HANDLER (SIGMA + TERMUX LINKED API) ---
 def handle_http_request(req_str, addr, client_socket):
     first_line = req_str.splitlines()[0] if req_str.splitlines() else "GET /"
     log_msg("HTTP REQ", f"From {addr[0]} -> {first_line}")
@@ -91,16 +107,34 @@ def handle_http_request(req_str, addr, client_socket):
     try:
         parts = first_line.split(" ")
         if len(parts) >= 2:
-            path = parts[1].split("?")[0]
+            path = parts[1]
     except:
         pass
 
-    player = get_player()
-    host_url = "https://sgma-ten.vercel.app"
+    parsed_url = urlparse(path)
+    clean_path = parsed_url.path.lower()
+    query_params = parse_qs(parsed_url.query)
 
-    # 1. GUEST OAUTH LOGIN
-    if "oauth/guest" in path.lower() or "guest/login" in path.lower():
-        log_msg("ROUTE", f"Handling Guest OAuth -> {path}")
+    player = get_player()
+    host_url = "https://svmx.onrender.com"
+
+    # 1. TERMUX DIRECT LINKED CONTROL BRIDGE
+    if "termux/sync" in clean_path:
+        log_msg("BRIDGE", "Received Remote Command Sync from Termux!")
+        gold = query_params.get("gold", [player["gold"]])[0]
+        diamond = query_params.get("diamond", [player["diamond"]])[0]
+        level = query_params.get("level", [player["level"]])[0]
+        
+        success = update_player_data("100000001", int(gold), int(diamond), int(level))
+        response_payload = {
+            "status": "SYNCED" if success else "FAILED",
+            "open_id": "100000001",
+            "synced_time": int(time.time())
+        }
+
+    # 2. GUEST OAUTH LOGIN
+    elif "oauth/guest" in clean_path or "guest/login" in clean_path:
+        log_msg("ROUTE", f"Handling Guest OAuth -> {clean_path}")
         response_payload = {
             "open_id": player["open_id"],
             "access_token": "TOKEN",
@@ -108,9 +142,9 @@ def handle_http_request(req_str, addr, client_socket):
             "msg": "success"
         }
 
-    # 2. APP INFO ROUTE
-    elif "app/info/get" in path.lower() or "app/info" in path.lower():
-        log_msg("ROUTE", f"Handling App Info -> {path}")
+    # 3. APP INFO ROUTE
+    elif "app/info/get" in clean_path or "app/info" in clean_path:
+        log_msg("ROUTE", f"Handling App Info -> {clean_path}")
         response_payload = {
             "ret": 0,
             "result": 0,
@@ -126,9 +160,9 @@ def handle_http_request(req_str, addr, client_socket):
             "overlay_config_url": host_url + "/rct/ver.php"
         }
 
-    # 3. VERSION CHECK ROUTE
-    elif "ver.php" in path.lower():
-        log_msg("ROUTE", f"Handling Version Check -> {path}")
+    # 4. VERSION CHECK ROUTE (Ver.php)
+    elif "ver.php" in clean_path:
+        log_msg("ROUTE", f"Handling Version Check -> {clean_path}")
         response_payload = {
             "code": 0,
             "is_server_open": True,
@@ -178,9 +212,9 @@ def handle_http_request(req_str, addr, client_socket):
             "login_download_optionalpack": ""
         }
 
-    # 4. MAJOR LOGIN ROUTE
-    elif "majorlogin" in path.lower() or "login" in path.lower():
-        log_msg("ROUTE", f"Handling MajorLogin -> {path}")
+    # 5. MAJOR LOGIN ROUTE
+    elif "majorlogin" in clean_path or "login" in clean_path:
+        log_msg("ROUTE", f"Handling MajorLogin -> {clean_path}")
         response_payload = {
             "ret": 0,
             "msg": "success",
@@ -203,9 +237,9 @@ def handle_http_request(req_str, addr, client_socket):
             }
         }
 
-    # 5. CATCH-ALL DEFAULT ROUTE
+    # 6. CATCH-ALL ROUTE (NO CONNECTION DROPS)
     else:
-        log_msg("ROUTE", f"Handling Default HTTP -> {path}")
+        log_msg("ROUTE", f"Handling Default HTTP -> {clean_path}")
         response_payload = {
             "ret": 0,
             "msg": "success",
@@ -215,7 +249,7 @@ def handle_http_request(req_str, addr, client_socket):
     packet = create_http_response(response_payload)
     client_socket.sendall(packet)
 
-# --- RAW TCP GAME SOCKET HANDLER ---
+# --- RAW TCP BINARY GAME SOCKET HANDLER ---
 def handle_raw_tcp_data(raw_data, addr, client_socket):
     log_msg("RAW TCP", f"Received binary/game packet ({len(raw_data)} bytes) from {addr[0]}")
     player = get_player()
@@ -229,9 +263,8 @@ def handle_raw_tcp_data(raw_data, addr, client_socket):
     }).encode('utf-8')
     client_socket.sendall(dummy_ack)
 
-# --- CLIENT CONNECTION MANAGER ---
+# --- CONNECTION ROUTER ENGINE ---
 def handle_client(client_socket, addr):
-    log_msg("TCP CONNECT", f"Connected: {addr[0]}:{addr[1]}")
     try:
         client_socket.settimeout(30.0)
         while True:
@@ -246,7 +279,7 @@ def handle_client(client_socket, addr):
                 handle_raw_tcp_data(raw_data, addr, client_socket)
 
     except socket.timeout:
-        log_msg("TIMEOUT", f"Connection idle timeout for {addr[0]}")
+        pass
     except Exception as e:
         log_msg("SOCKET ERROR", f"Error with {addr[0]}: {str(e)}")
     finally:
@@ -254,22 +287,17 @@ def handle_client(client_socket, addr):
             client_socket.close()
         except:
             pass
-        log_msg("TCP DISCONNECT", f"Disconnected: {addr[0]}")
 
-# --- MAIN SERVER LAUNCHER (AUTO PORT BINDING FOR RENDER & TERMUX) ---
-def start_tcp_server():
+# --- MAIN RENDER ENGINE LAUNCHER ---
+def start_tcp_server(host='0.0.0.0', port=10000):
     init_database()
-    host = '0.0.0.0'
-    # Render env variable check karega, warna default 8080 par chalega
-    port = int(os.environ.get("PORT", 8080))
-    
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     
     try:
         server.bind((host, port))
         server.listen(200)
-        log_msg("SERVER START", f"Master Powerful Hybrid Server Running on {host}:{port}")
+        log_msg("TCP SERVER", f"Render + Termux Hybrid Engine Running on {host}:{port}")
     except Exception as e:
         log_msg("BIND ERROR", f"Failed to bind on port {port}: {str(e)}")
         return
@@ -284,4 +312,11 @@ def start_tcp_server():
             log_msg("ACCEPT ERROR", str(e))
 
 if __name__ == '__main__':
-    start_tcp_server()
+    # Render ke assigned PORT ko automatic fetch karega
+    port = int(os.environ.get("PORT", 10000))
+    print("==================================================")
+    print("    RENDER + TERMUX LINKED PRIVATE SERVER (24/7)  ")
+    print("==================================================")
+    print(f" [*] Server Port Bound To : {port}")
+    print("==================================================")
+    start_tcp_server('0.0.0.0', port)
