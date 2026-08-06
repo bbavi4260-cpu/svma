@@ -11,6 +11,7 @@ def log_msg(tag, msg):
     current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     print(f"[{current_time}] [{tag}] {msg}")
 
+# --- DATABASE SETUP ---
 def init_database():
     try:
         conn = sqlite3.connect(DB_FILE)
@@ -64,23 +65,11 @@ def get_player():
         "diamond": 999999
     }
 
-def update_player_nickname(new_nickname):
-    if not new_nickname or len(new_nickname.strip()) == 0:
-        return
-    try:
-        conn = sqlite3.connect(DB_FILE)
-        cursor = conn.cursor()
-        cursor.execute("UPDATE players SET nickname = ? WHERE open_id = ?", (new_nickname, "GUEST_100000001"))
-        conn.commit()
-        conn.close()
-        log_msg("DB UPDATE", f"Nickname updated to: {new_nickname}")
-    except Exception as e:
-        log_msg("DB ERROR", str(e))
-
-def create_http_json_response(data_dict):
+# --- HTTP RESPONSE BUILDER ---
+def create_http_response(data_dict, status_code=200):
     body = json.dumps(data_dict)
     response = (
-        "HTTP/1.1 200 OK\r\n"
+        f"HTTP/1.1 {status_code} OK\r\n"
         "Content-Type: application/json; charset=utf-8\r\n"
         "Access-Control-Allow-Origin: *\r\n"
         "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n"
@@ -91,6 +80,7 @@ def create_http_json_response(data_dict):
     )
     return response.encode('utf-8')
 
+# --- TCP REQUEST HANDLER & ROUTER ---
 def handle_client(client_socket, addr):
     log_msg("TCP CONNECT", f"Incoming connection from {addr[0]}:{addr[1]}")
     try:
@@ -104,101 +94,143 @@ def handle_client(client_socket, addr):
             first_line = req_str.splitlines()[0] if req_str.splitlines() else "GET /"
             log_msg("TCP REQ", f"From {addr[0]} -> {first_line}")
 
-            # Capture nickname if sent by client
-            if "nickname" in req_str.lower() or "name" in req_str.lower():
-                try:
-                    if "\r\n\r\n" in req_str:
-                        body_part = req_str.split("\r\n\r\n")[1]
-                        if "{" in body_part:
-                            body_json = json.loads(body_part)
-                            if "nickname" in body_json:
-                                update_player_nickname(body_json["nickname"])
-                            elif "name" in body_json:
-                                update_player_nickname(body_json["name"])
-                except Exception as ex:
-                    log_msg("PARSE ERROR", str(ex))
+            path = "/"
+            try:
+                parts = first_line.split(" ")
+                if len(parts) >= 2:
+                    path = parts[1].split("?")[0]
+            except:
+                pass
 
             player = get_player()
-            base_url = "https://sigma-private-server.onrender.com/"
-            req_lower = req_str.lower()
-
-            # 1. Configuration & Version Handshake
-            if any(k in req_lower for k in ["config", "version", "check", "init"]):
-                log_msg("ROUTE", "Handling Config/Version Request")
+            host_url = f"http://{addr[0]}:8080"
+            
+            # --- ROUTING ENGINE ---
+            if "ver.php" in path.lower():
+                log_msg("ROUTE", f"Handling Version Check -> {path}")
                 response_payload = {
-                    "code": 0, "ret": 0, "msg": "success",
-                    "is_server_open": True, "is_firewall_open": True,
-                    "remote_version": "1.0.1", "remote_option_version": "1.0.1",
-                    "server_url": base_url, "cdn_url": base_url, "backup_cdn_url": base_url,
-                    "is_review_server": False, "force_to_restart_app": False,
-                    "country_code": "IN", "client_ip": addr[0]
+                    "code": 0,
+                    "is_server_open": True,
+                    "is_firewall_open": True,
+                    "need_track_hotupdate": False,
+                    "min_hint_size": 0,
+                    "billboard_cdn_url": "",
+                    "billboard_msg": "",
+                    "patchnote_url": "",
+                    "web_url": "",
+                    "billboard_bg_url": "",
+                    "max_store": "",
+                    "max_web": "",
+                    "max_video": "",
+                    "remote_version": "1.0.0",
+                    "remote_option_version": "1.0.0",
+                    "cdn_url": host_url + "/",
+                    "backup_cdn_url": host_url + "/",
+                    "server_url": host_url + "/",
+                    "is_review_server": False,
+                    "appstore_url": host_url + "/",
+                    "force_to_restart_app": False,
+                    "country_code": "IN",
+                    "gdpr_version": 0,
+                    "client_ip": addr[0],
+                    "maintenance_announcement": "",
+                    "maintenance_region": "",
+                    "need_check_ip_list": [],
+                    "network_log_server": host_url + "/",
+                    "web_log_server": host_url + "/",
+                    "login_failed_count": 0,
+                    "test_url": host_url + "/",
+                    "img_cdn_url": host_url + "/",
+                    "core_url": host_url + "/",
+                    "core_ip_list": [],
+                    "is_update_btn_show": False,
+                    "is_use_multi_download": False,
+                    "use_login_optional_download": False,
+                    "use_background_download": False,
+                    "use_background_download_lobby": False,
+                    "use_backgound_download_mem_thredshold": 0,
+                    "sigma_login": True,
+                    "sigma_switch": True,
+                    "enable_clear_mem_when_autopause": False,
+                    "space_required_in_GB": 0,
+                    "sigma_backup_url": host_url + "/",
+                    "login_download_optionalpack": ""
                 }
 
-            # 2. Login & Authentication Check
-            elif any(k in req_lower for k in ["login", "guest", "auth", "oauth"]):
-                log_msg("ROUTE", "Handling Login/Auth Request")
+            elif "guest/token/grant" in path.lower() or "guest/register" in path.lower():
+                log_msg("ROUTE", f"Handling Guest Auth -> {path}")
                 response_payload = {
-                    "code": 0, "ret": 0, "msg": "success",
-                    "open_id": player["open_id"],
-                    "access_token": "TOKEN_MASTER_BYPASS_100",
-                    "refresh_token": "REFRESH_MASTER_BYPASS_100",
-                    "uid": str(player["account_id"]),
-                    "has_role": True, "is_created": True
+                    "ret": 0,
+                    "msg": "success",
+                    "data": {
+                        "open_id": player["open_id"],
+                        "uid": str(player["account_id"]),
+                        "access_token": "MASTER_GUEST_TOKEN_100",
+                        "refresh_token": "MASTER_GUEST_REFRESH_100",
+                        "expires_in": 86400
+                    }
                 }
 
-            # 3. Profile, Role & Nickname Creation Sync
-            elif any(k in req_lower for k in ["role", "profile", "user", "lobby", "major", "nickname", "create"]):
-                log_msg("ROUTE", "Handling Role/Profile/Lobby Request")
+            elif "guest/token/inspect" in path.lower():
+                log_msg("ROUTE", f"Handling Token Inspect -> {path}")
                 response_payload = {
-                    "code": 0, "ret": 0, "msg": "success",
-                    "status": "ok",
-                    "has_role": True, "is_created": True, "need_role": False,
+                    "ret": 0,
+                    "msg": "success",
+                    "data": {
+                        "active": True,
+                        "open_id": player["open_id"],
+                        "uid": str(player["account_id"]),
+                        "expires_in": 86400
+                    }
+                }
+
+            elif "majorlogin" in path.lower() or "login" in path.lower():
+                log_msg("ROUTE", f"Handling MajorLogin -> {path}")
+                response_payload = {
+                    "ret": 0,
+                    "msg": "success",
                     "data": {
                         "account_id": player["account_id"],
+                        "uid": str(player["account_id"]),
                         "open_id": player["open_id"],
                         "nickname": player["nickname"],
                         "level": player["level"],
                         "exp": 99999,
                         "gold": player["gold"],
                         "diamond": player["diamond"],
-                        "avatar_id": 1, "gender": 1, "character_id": 101,
-                        "has_role": True, "is_created": True, "in_lobby": True,
+                        "token": "MASTER_TOKEN_BYPASS_100",
+                        "has_role": True,
+                        "is_created": True,
+                        "in_lobby": True,
                         "server_time": int(time.time()),
-                        "unlocked_characters": [101, 102, 103, 104, 105],
-                        "unlocked_weapons": [201, 202, 203, 204]
+                        "server_url": host_url,
+                        "cdn_url": host_url
                     }
                 }
 
-            # 4. Asset File / Resource Check
-            elif any(k in req_lower for k in ["fileinfo", "res", "manifest", "bundle"]):
-                log_msg("ROUTE", "Handling File/Manifest Request")
-                response_payload = {
-                    "code": 0, "ret": 0, "msg": "success",
-                    "files": [], "total_size": 0, "version": "1.0.1"
-                }
-
-            # 5. Default Fallback
             else:
-                log_msg("ROUTE", "Handling General Fallback Request")
+                log_msg("ROUTE", f"Handling Default/Root Path -> {path}")
                 response_payload = {
-                    "code": 0, "ret": 0, "msg": "success",
-                    "status": "ok",
-                    "server_url": base_url,
-                    "cdn_url": base_url,
+                    "ret": 0,
+                    "msg": "success",
                     "data": {
                         "account_id": player["account_id"],
+                        "uid": str(player["account_id"]),
+                        "open_id": player["open_id"],
                         "nickname": player["nickname"],
+                        "level": player["level"],
                         "gold": player["gold"],
                         "diamond": player["diamond"],
                         "has_role": True,
                         "is_created": True,
-                        "in_lobby": True
+                        "in_lobby": True,
+                        "server_time": int(time.time())
                     }
                 }
 
-            packet = create_http_json_response(response_payload)
+            packet = create_http_response(response_payload)
             client_socket.sendall(packet)
-            log_msg("TCP RES", f"Response successfully sent to {addr[0]}")
+            log_msg("TCP RES", f"Response successfully sent for [{path}] to {addr[0]}")
 
     except Exception as e:
         log_msg("SOCKET ERROR", f"With {addr[0]} -> {str(e)}")
@@ -215,7 +247,7 @@ def start_tcp_server(host='0.0.0.0', port=8080):
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server.bind((host, port))
     server.listen(100)
-    log_msg("TCP SERVER", f"Server started successfully and listening on port {port}")
+    log_msg("TCP SERVER", f"Raw TCP Server started successfully and listening on port {port}")
 
     while True:
         try:
