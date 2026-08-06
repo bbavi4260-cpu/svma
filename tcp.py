@@ -4,8 +4,6 @@ import json
 import time
 import sqlite3
 import datetime
-import os
-from urllib.parse import parse_qs, urlparse
 
 DB_FILE = 'accounts.db'
 
@@ -13,7 +11,6 @@ def log_msg(tag, msg):
     current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     print(f"[{current_time}] [{tag}] {msg}")
 
-# --- DATABASE ENGINE (TERMUX & RENDER SYNCED) ---
 def init_database():
     try:
         conn = sqlite3.connect(DB_FILE)
@@ -28,23 +25,23 @@ def init_database():
                 diamond INTEGER DEFAULT 999999
             )
         ''')
-        cursor.execute("SELECT id FROM players WHERE open_id = ?", ("100000001",))
+        cursor.execute("SELECT id FROM players WHERE open_id = ?", ("GUEST_100000001",))
         if not cursor.fetchone():
             cursor.execute('''
                 INSERT INTO players (open_id, nickname, level, gold, diamond)
                 VALUES (?, ?, ?, ?, ?)
-            ''', ("100000001", "Master", 60, 999999, 999999))
+            ''', ("GUEST_100000001", "Master", 60, 999999, 999999))
             conn.commit()
         conn.close()
         log_msg("DB", "Database initialized successfully.")
     except Exception as e:
         log_msg("DB ERROR", str(e))
 
-def get_player(open_id="100000001"):
+def get_player():
     try:
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
-        cursor.execute("SELECT id, open_id, nickname, level, gold, diamond FROM players WHERE open_id = ?", (open_id,))
+        cursor.execute("SELECT id, open_id, nickname, level, gold, diamond FROM players WHERE open_id = ?", ("GUEST_100000001",))
         row = cursor.fetchone()
         conn.close()
         if row:
@@ -56,38 +53,34 @@ def get_player(open_id="100000001"):
                 "gold": row[4],
                 "diamond": row[5]
             }
-    except Exception as e:
-        log_msg("DB FETCH ERROR", str(e))
-    
+    except:
+        pass
     return {
         "account_id": 100000001,
-        "open_id": "100000001",
+        "open_id": "GUEST_100000001",
         "nickname": "Master",
         "level": 60,
         "gold": 999999,
         "diamond": 999999
     }
 
-def update_player_data(open_id, gold, diamond, level):
+def update_player_nickname(new_nickname):
+    if not new_nickname or len(new_nickname.strip()) == 0:
+        return
     try:
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
-        cursor.execute('''
-            UPDATE players SET gold = ?, diamond = ?, level = ? WHERE open_id = ?
-        ''', (gold, diamond, level, open_id))
+        cursor.execute("UPDATE players SET nickname = ? WHERE open_id = ?", (new_nickname, "GUEST_100000001"))
         conn.commit()
         conn.close()
-        log_msg("TERMUX SYNC", f"Player {open_id} updated from Termux Bridge!")
-        return True
+        log_msg("DB UPDATE", f"Nickname updated to: {new_nickname}")
     except Exception as e:
-        log_msg("TERMUX SYNC ERROR", str(e))
-        return False
+        log_msg("DB ERROR", str(e))
 
-# --- HTTP RESPONSE BUILDER ---
-def create_http_response(data_dict, status_code=200):
+def create_http_json_response(data_dict):
     body = json.dumps(data_dict)
     response = (
-        f"HTTP/1.1 {status_code} OK\r\n"
+        "HTTP/1.1 200 OK\r\n"
         "Content-Type: application/json; charset=utf-8\r\n"
         "Access-Control-Allow-Origin: *\r\n"
         "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n"
@@ -98,209 +91,166 @@ def create_http_response(data_dict, status_code=200):
     )
     return response.encode('utf-8')
 
-# --- HTTP ROUTE HANDLER (SIGMA + TERMUX LINKED API) ---
-def handle_http_request(req_str, addr, client_socket):
-    first_line = req_str.splitlines()[0] if req_str.splitlines() else "GET /"
-    log_msg("HTTP REQ", f"From {addr[0]} -> {first_line}")
-
-    path = "/"
-    try:
-        parts = first_line.split(" ")
-        if len(parts) >= 2:
-            path = parts[1]
-    except:
-        pass
-
-    parsed_url = urlparse(path)
-    clean_path = parsed_url.path.lower()
-    query_params = parse_qs(parsed_url.query)
-
-    player = get_player()
-    host_url = "https://svmx.onrender.com"
-
-    # 1. TERMUX DIRECT LINKED CONTROL BRIDGE
-    if "termux/sync" in clean_path:
-        log_msg("BRIDGE", "Received Remote Command Sync from Termux!")
-        gold = query_params.get("gold", [player["gold"]])[0]
-        diamond = query_params.get("diamond", [player["diamond"]])[0]
-        level = query_params.get("level", [player["level"]])[0]
-        
-        success = update_player_data("100000001", int(gold), int(diamond), int(level))
-        response_payload = {
-            "status": "SYNCED" if success else "FAILED",
-            "open_id": "100000001",
-            "synced_time": int(time.time())
-        }
-
-    # 2. GUEST OAUTH LOGIN
-    elif "oauth/guest" in clean_path or "guest/login" in clean_path:
-        log_msg("ROUTE", f"Handling Guest OAuth -> {clean_path}")
-        response_payload = {
-            "open_id": player["open_id"],
-            "access_token": "TOKEN",
-            "ret": 0,
-            "msg": "success"
-        }
-
-    # 3. APP INFO ROUTE
-    elif "app/info/get" in clean_path or "app/info" in clean_path:
-        log_msg("ROUTE", f"Handling App Info -> {clean_path}")
-        response_payload = {
-            "ret": 0,
-            "result": 0,
-            "msg": "success",
-            "data": {
-                "app_id": 100067,
-                "app_name": "Sigma",
-                "status": 1,
-                "update_url": "",
-                "version": "1.0.0"
-            },
-            "client_log": False,
-            "overlay_config_url": host_url + "/rct/ver.php"
-        }
-
-    # 4. VERSION CHECK ROUTE (Ver.php)
-    elif "ver.php" in clean_path:
-        log_msg("ROUTE", f"Handling Version Check -> {clean_path}")
-        response_payload = {
-            "code": 0,
-            "is_server_open": True,
-            "is_firewall_open": True,
-            "need_track_hotupdate": False,
-            "min_hint_size": 0,
-            "billboard_cdn_url": "",
-            "billboard_msg": "",
-            "patchnote_url": "",
-            "web_url": "",
-            "billboard_bg_url": "",
-            "max_store": "",
-            "max_web": "",
-            "max_video": "",
-            "remote_version": "1.0.0",
-            "remote_option_version": "1.0.0",
-            "cdn_url": host_url + "/",
-            "backup_cdn_url": host_url + "/",
-            "server_url": host_url + "/",
-            "is_review_server": False,
-            "appstore_url": host_url + "/",
-            "force_to_restart_app": False,
-            "country_code": "IN",
-            "gdpr_version": 0,
-            "client_ip": addr[0],
-            "maintenance_announcement": "",
-            "maintenance_region": "",
-            "need_check_ip_list": [],
-            "network_log_server": host_url + "/",
-            "web_log_server": host_url + "/",
-            "login_failed_count": 0,
-            "test_url": host_url + "/",
-            "img_cdn_url": host_url + "/",
-            "core_url": host_url + "/",
-            "core_ip_list": [],
-            "is_update_btn_show": False,
-            "is_use_multi_download": False,
-            "use_login_optional_download": False,
-            "use_background_download": False,
-            "use_background_download_lobby": False,
-            "use_backgound_download_mem_thredshold": 0,
-            "sigma_login": True,
-            "sigma_switch": True,
-            "enable_clear_mem_when_autopause": False,
-            "space_required_in_GB": 0,
-            "sigma_backup_url": host_url + "/",
-            "login_download_optionalpack": ""
-        }
-
-    # 5. MAJOR LOGIN ROUTE
-    elif "majorlogin" in clean_path or "login" in clean_path:
-        log_msg("ROUTE", f"Handling MajorLogin -> {clean_path}")
-        response_payload = {
-            "ret": 0,
-            "msg": "success",
-            "data": {
-                "account_id": player["account_id"],
-                "uid": str(player["account_id"]),
-                "open_id": player["open_id"],
-                "nickname": player["nickname"],
-                "level": player["level"],
-                "exp": 99999,
-                "gold": player["gold"],
-                "diamond": player["diamond"],
-                "token": "TOKEN",
-                "has_role": True,
-                "is_created": True,
-                "in_lobby": True,
-                "server_time": int(time.time()),
-                "server_url": host_url,
-                "cdn_url": host_url
-            }
-        }
-
-    # 6. CATCH-ALL ROUTE (NO CONNECTION DROPS)
-    else:
-        log_msg("ROUTE", f"Handling Default HTTP -> {clean_path}")
-        response_payload = {
-            "ret": 0,
-            "msg": "success",
-            "data": {}
-        }
-
-    packet = create_http_response(response_payload)
-    client_socket.sendall(packet)
-
-# --- RAW TCP BINARY GAME SOCKET HANDLER ---
-def handle_raw_tcp_data(raw_data, addr, client_socket):
-    log_msg("RAW TCP", f"Received binary/game packet ({len(raw_data)} bytes) from {addr[0]}")
-    player = get_player()
-    dummy_ack = json.dumps({
-        "status": "READY",
-        "ret": 0,
-        "msg": "success",
-        "account_id": player["account_id"],
-        "open_id": player["open_id"],
-        "timestamp": int(time.time())
-    }).encode('utf-8')
-    client_socket.sendall(dummy_ack)
-
-# --- CONNECTION ROUTER ENGINE ---
 def handle_client(client_socket, addr):
+    log_msg("TCP CONNECT", f"Incoming connection from {addr[0]}:{addr[1]}")
     try:
-        client_socket.settimeout(30.0)
+        client_socket.settimeout(15.0)
         while True:
             raw_data = client_socket.recv(8192)
             if not raw_data:
                 break
+            
+            req_str = raw_data.decode('utf-8', errors='ignore')
+            first_line = req_str.splitlines()[0] if req_str.splitlines() else "GET /"
+            log_msg("TCP REQ", f"From {addr[0]} -> {first_line}")
 
-            if raw_data.startswith(b'GET') or raw_data.startswith(b'POST') or raw_data.startswith(b'OPTIONS') or raw_data.startswith(b'HEAD'):
-                req_str = raw_data.decode('utf-8', errors='ignore')
-                handle_http_request(req_str, addr, client_socket)
+            # Extract exact request path
+            path = "/"
+            try:
+                parts = first_line.split(" ")
+                if len(parts) >= 2:
+                    path = parts[1].split("?")[0]
+            except:
+                pass
+
+            if "nickname" in req_str.lower() or "name" in req_str.lower():
+                try:
+                    if "\r\n\r\n" in req_str:
+                        body_part = req_str.split("\r\n\r\n")[1]
+                        if "{" in body_part:
+                            body_json = json.loads(body_part)
+                            if "nickname" in body_json:
+                                update_player_nickname(body_json["nickname"])
+                            elif "name" in body_json:
+                                update_player_nickname(body_json["name"])
+                except Exception as ex:
+                    log_msg("PARSE ERROR", str(ex))
+
+            player = get_player()
+            base_url = "http://127.0.0.1:8080/app"
+            req_lower = req_str.lower()
+
+            # Routing based on exact path or keywords
+            if "majorlogin" in path.lower() or "login" in req_lower or "auth" in req_lower:
+                log_msg("ROUTE", f"Handling Login/MajorLogin Request -> {path}")
+                response_payload = {
+                    "code": 0,
+                    "ret": 0,
+                    "status": 0,
+                    "msg": "success",
+                    "message": "success",
+                    "is_server_open": True,
+                    "is_firewall_open": True,
+                    "has_role": True,
+                    "is_created": True,
+                    "need_role": False,
+                    "token": "MASTER_TOKEN_BYPASS_100",
+                    "access_token": "TOKEN_MASTER_BYPASS_100",
+                    "refresh_token": "REFRESH_MASTER_BYPASS_100",
+                    "uid": str(player["account_id"]),
+                    "open_id": player["open_id"],
+                    "server_url": base_url,
+                    "cdn_url": base_url,
+                    "gate_ip": base_url,
+                    "data": {
+                        "account_id": player["account_id"],
+                        "uid": str(player["account_id"]),
+                        "open_id": player["open_id"],
+                        "nickname": player["nickname"],
+                        "level": player["level"],
+                        "exp": 99999,
+                        "gold": player["gold"],
+                        "diamond": player["diamond"],
+                        "avatar_id": 1,
+                        "gender": 1,
+                        "character_id": 101,
+                        "has_role": True,
+                        "is_created": True,
+                        "in_lobby": True,
+                        "server_time": int(time.time()),
+                        "unlocked_characters": [101, 102, 103, 104, 105],
+                        "unlocked_weapons": [201, 202, 203, 204]
+                    },
+                    "config": {
+                        "remote_version": "1.0.1",
+                        "remote_option_version": "1.0.1",
+                        "is_review_server": False
+                    }
+                }
+            elif any(k in req_lower for k in ["config", "version", "check", "init", "ver.php"]):
+                log_msg("ROUTE", f"Handling Version/Config Request -> {path}")
+                response_payload = {
+                    "code": 0, "ret": 0, "msg": "success",
+                    "is_server_open": True, "is_firewall_open": True,
+                    "remote_version": "1.0.1", "remote_option_version": "1.0.1",
+                    "server_url": base_url, "cdn_url": base_url,
+                    "is_review_server": False, "force_to_restart_app": False
+                }
             else:
-                handle_raw_tcp_data(raw_data, addr, client_socket)
+                log_msg("ROUTE", f"Handling General Lobby Request -> {path}")
+                response_payload = {
+                    "code": 0,
+                    "ret": 0,
+                    "status": 0,
+                    "msg": "success",
+                    "message": "success",
+                    "is_server_open": True,
+                    "is_firewall_open": True,
+                    "has_role": True,
+                    "is_created": True,
+                    "need_role": False,
+                    "token": "MASTER_TOKEN_BYPASS_100",
+                    "uid": str(player["account_id"]),
+                    "open_id": player["open_id"],
+                    "server_url": base_url,
+                    "cdn_url": base_url,
+                    "gate_ip": base_url,
+                    "data": {
+                        "account_id": player["account_id"],
+                        "uid": str(player["account_id"]),
+                        "open_id": player["open_id"],
+                        "nickname": player["nickname"],
+                        "level": player["level"],
+                        "exp": 99999,
+                        "gold": player["gold"],
+                        "diamond": player["diamond"],
+                        "avatar_id": 1,
+                        "gender": 1,
+                        "character_id": 101,
+                        "has_role": True,
+                        "is_created": True,
+                        "in_lobby": True,
+                        "server_time": int(time.time()),
+                        "unlocked_characters": [101, 102, 103, 104, 105],
+                        "unlocked_weapons": [201, 202, 203, 204]
+                    },
+                    "config": {
+                        "remote_version": "1.0.1",
+                        "remote_option_version": "1.0.1",
+                        "is_review_server": False
+                    }
+                }
 
-    except socket.timeout:
-        pass
+            packet = create_http_json_response(response_payload)
+            client_socket.sendall(packet)
+            log_msg("TCP RES", f"Response successfully sent for [{path}] to {addr[0]}")
+
     except Exception as e:
-        log_msg("SOCKET ERROR", f"Error with {addr[0]}: {str(e)}")
+        log_msg("SOCKET ERROR", f"With {addr[0]} -> {str(e)}")
     finally:
         try:
             client_socket.close()
         except:
             pass
+        log_msg("TCP DISCONNECT", f"Connection closed for {addr[0]}")
 
-# --- MAIN RENDER ENGINE LAUNCHER ---
-def start_tcp_server(host='0.0.0.0', port=10000):
+def start_tcp_server(host='0.0.0.0', port=8080):
     init_database()
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    
-    try:
-        server.bind((host, port))
-        server.listen(200)
-        log_msg("TCP SERVER", f"Render + Termux Hybrid Engine Running on {host}:{port}")
-    except Exception as e:
-        log_msg("BIND ERROR", f"Failed to bind on port {port}: {str(e)}")
-        return
+    server.bind((host, port))
+    server.listen(100)
+    log_msg("TCP SERVER", f"Server started successfully and listening on port {port}")
 
     while True:
         try:
@@ -312,11 +262,4 @@ def start_tcp_server(host='0.0.0.0', port=10000):
             log_msg("ACCEPT ERROR", str(e))
 
 if __name__ == '__main__':
-    # Render ke assigned PORT ko automatic fetch karega
-    port = int(os.environ.get("PORT", 10000))
-    print("==================================================")
-    print("    RENDER + TERMUX LINKED PRIVATE SERVER (24/7)  ")
-    print("==================================================")
-    print(f" [*] Server Port Bound To : {port}")
-    print("==================================================")
-    start_tcp_server('0.0.0.0', port)
+    start_tcp_server()
