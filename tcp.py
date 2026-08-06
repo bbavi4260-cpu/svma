@@ -26,12 +26,12 @@ def init_database():
                 diamond INTEGER DEFAULT 999999
             )
         ''')
-        cursor.execute("SELECT id FROM players WHERE open_id = ?", ("GUEST_100000001",))
+        cursor.execute("SELECT id FROM players WHERE open_id = ?", ("100000001",))
         if not cursor.fetchone():
             cursor.execute('''
                 INSERT INTO players (open_id, nickname, level, gold, diamond)
                 VALUES (?, ?, ?, ?, ?)
-            ''', ("GUEST_100000001", "Master", 60, 999999, 999999))
+            ''', ("100000001", "Master", 60, 999999, 999999))
             conn.commit()
         conn.close()
         log_msg("DB", "Database initialized successfully.")
@@ -42,7 +42,7 @@ def get_player():
     try:
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
-        cursor.execute("SELECT id, open_id, nickname, level, gold, diamond FROM players WHERE open_id = ?", ("GUEST_100000001",))
+        cursor.execute("SELECT id, open_id, nickname, level, gold, diamond FROM players WHERE open_id = ?", ("100000001",))
         row = cursor.fetchone()
         conn.close()
         if row:
@@ -58,7 +58,7 @@ def get_player():
         pass
     return {
         "account_id": 100000001,
-        "open_id": "GUEST_100000001",
+        "open_id": "100000001",
         "nickname": "Master",
         "level": 60,
         "gold": 999999,
@@ -106,7 +106,37 @@ def handle_client(client_socket, addr):
             host_url = f"http://{addr[0]}:8080"
             
             # --- ROUTING ENGINE ---
-            if "ver.php" in path.lower():
+
+            # 1. GUEST OAUTH LOGIN ROUTE (Exact requested format)
+            if "oauth/guest" in path.lower() or "guest/login" in path.lower():
+                log_msg("ROUTE", f"Handling Guest OAuth -> {path}")
+                response_payload = {
+                    "open_id": player["open_id"],
+                    "access_token": "TOKEN",
+                    "ret": 0,
+                    "msg": "success"
+                }
+
+            # 2. APP INFO ROUTE (Exact requested format)
+            elif "app/info/get" in path.lower() or "app/info" in path.lower():
+                log_msg("ROUTE", f"Handling App Info -> {path}")
+                response_payload = {
+                    "ret": 0,
+                    "result": 0,
+                    "msg": "success",
+                    "data": {
+                        "app_id": 100067,
+                        "app_name": "Sigma",
+                        "status": 1,
+                        "update_url": "",
+                        "version": "1.0.0"
+                    },
+                    "client_log": False,
+                    "overlay_config_url": host_url + "/rct/ver.php"
+                }
+
+            # 3. VERSION CHECK ROUTE
+            elif "ver.php" in path.lower():
                 log_msg("ROUTE", f"Handling Version Check -> {path}")
                 response_payload = {
                     "code": 0,
@@ -157,15 +187,7 @@ def handle_client(client_socket, addr):
                     "login_download_optionalpack": ""
                 }
 
-            elif "guest" in path.lower() or "oauth" in path.lower():
-                log_msg("ROUTE", f"Handling Old Guest Login System -> {path}")
-                # Old style clean response as requested
-                response_payload = {
-                    "ret": 0,
-                    "msg": "success",
-                    "data": {}
-                }
-
+            # 4. MAJOR LOGIN ROUTE
             elif "majorlogin" in path.lower() or "login" in path.lower():
                 log_msg("ROUTE", f"Handling MajorLogin -> {path}")
                 response_payload = {
@@ -180,7 +202,7 @@ def handle_client(client_socket, addr):
                         "exp": 99999,
                         "gold": player["gold"],
                         "diamond": player["diamond"],
-                        "token": "MASTER_TOKEN_BYPASS_100",
+                        "token": "TOKEN",
                         "has_role": True,
                         "is_created": True,
                         "in_lobby": True,
@@ -190,6 +212,7 @@ def handle_client(client_socket, addr):
                     }
                 }
 
+            # 5. CATCH-ALL DEFAULT ROUTE
             else:
                 log_msg("ROUTE", f"Handling Default/Root Path -> {path}")
                 response_payload = {
