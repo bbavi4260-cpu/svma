@@ -157,31 +157,13 @@ def handle_client(client_socket, addr):
                     "login_download_optionalpack": ""
                 }
 
-            elif "guest/token/grant" in path.lower() or "guest/register" in path.lower():
-                log_msg("ROUTE", f"Handling Guest Auth -> {path}")
+            elif "guest" in path.lower() or "oauth" in path.lower():
+                log_msg("ROUTE", f"Handling Old Guest Login System -> {path}")
+                # Old style clean response as requested
                 response_payload = {
                     "ret": 0,
                     "msg": "success",
-                    "data": {
-                        "open_id": player["open_id"],
-                        "uid": str(player["account_id"]),
-                        "access_token": "MASTER_GUEST_TOKEN_100",
-                        "refresh_token": "MASTER_GUEST_REFRESH_100",
-                        "expires_in": 86400
-                    }
-                }
-
-            elif "guest/token/inspect" in path.lower():
-                log_msg("ROUTE", f"Handling Token Inspect -> {path}")
-                response_payload = {
-                    "ret": 0,
-                    "msg": "success",
-                    "data": {
-                        "active": True,
-                        "open_id": player["open_id"],
-                        "uid": str(player["account_id"]),
-                        "expires_in": 86400
-                    }
+                    "data": {}
                 }
 
             elif "majorlogin" in path.lower() or "login" in path.lower():
@@ -213,19 +195,7 @@ def handle_client(client_socket, addr):
                 response_payload = {
                     "ret": 0,
                     "msg": "success",
-                    "data": {
-                        "account_id": player["account_id"],
-                        "uid": str(player["account_id"]),
-                        "open_id": player["open_id"],
-                        "nickname": player["nickname"],
-                        "level": player["level"],
-                        "gold": player["gold"],
-                        "diamond": player["diamond"],
-                        "has_role": True,
-                        "is_created": True,
-                        "in_lobby": True,
-                        "server_time": int(time.time())
-                    }
+                    "data": {}
                 }
 
             packet = create_http_response(response_payload)
